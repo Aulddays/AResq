@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2013
-VisualStudioVersion = 12.0.40629.0
+VisualStudioVersion = 12.0.31101.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libaresq", "libaresq\libaresq.vcxproj", "{A9C696B5-ECE4-4D58-AB42-1F62083D32BC}"
 EndProject
@@ -9,6 +9,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "aresqc", "aresqc\aresqc.vcx
 	ProjectSection(ProjectDependencies) = postProject
 		{A9C696B5-ECE4-4D58-AB42-1F62083D32BC} = {A9C696B5-ECE4-4D58-AB42-1F62083D32BC}
 	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libconfig", "libconfig\libconfig.vcxproj", "{1A234565-926D-49B2-83E4-D56E0C38C9F2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -24,6 +26,10 @@ Global
 		{7DF14B87-B1AE-4F1C-9202-B4751F8BD4CB}.Debug|Win32.Build.0 = Debug|Win32
 		{7DF14B87-B1AE-4F1C-9202-B4751F8BD4CB}.Release|Win32.ActiveCfg = Release|Win32
 		{7DF14B87-B1AE-4F1C-9202-B4751F8BD4CB}.Release|Win32.Build.0 = Release|Win32
+		{1A234565-926D-49B2-83E4-D56E0C38C9F2}.Debug|Win32.ActiveCfg = Debug|Win32
+		{1A234565-926D-49B2-83E4-D56E0C38C9F2}.Debug|Win32.Build.0 = Debug|Win32
+		{1A234565-926D-49B2-83E4-D56E0C38C9F2}.Release|Win32.ActiveCfg = Release|Win32
+		{1A234565-926D-49B2-83E4-D56E0C38C9F2}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
