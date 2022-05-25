@@ -3,17 +3,16 @@
 
 #include "stdafx.h"
 
-#include "libaresq/record.h"
+#include "libaresq/Root.h"
 
 #include <stdio.h>
 #include <vector>
+#include "libaresq/utfconv.h"
 
 int main(int argc, char* argv[])
 {
-	printf("size %d\n", sizeof(RecordItem));
-	printf("size10 %d\n", sizeof(RecordItem[10]));
-	std::vector<RecordItem> files(10);
-	printf("%p %p %p\n", &files[0], &files[1], &files[2]);
+	Root tmp("records", "E:\\tmp");
+	tmp.load();
 	return 0;
 }
 

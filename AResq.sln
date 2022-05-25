@@ -7,6 +7,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libaresq", "libaresq\libare
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "aresqc", "aresqc\aresqc.vcxproj", "{7DF14B87-B1AE-4F1C-9202-B4751F8BD4CB}"
 	ProjectSection(ProjectDependencies) = postProject
+		{1A234565-926D-49B2-83E4-D56E0C38C9F2} = {1A234565-926D-49B2-83E4-D56E0C38C9F2}
 		{A9C696B5-ECE4-4D58-AB42-1F62083D32BC} = {A9C696B5-ECE4-4D58-AB42-1F62083D32BC}
 	EndProjectSection
 EndProject
