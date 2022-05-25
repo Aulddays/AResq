@@ -196,15 +196,15 @@ int Root::startRefresh()
 	restate.clear();
 	restate.resize(1);
 	restate.back().rid = 1;
-	reid = 1;
 	return 0;
 }
 
+// return: 0: finished, >0: one step, <0: error
 int Root::refreshStep(int state)
 {
 	// check restate first
 	if (restate.size() == 0)
-		return 1;
+		return 0;
 	{
 		if (restate[0].rid != 1)
 		{
@@ -295,7 +295,7 @@ int Root::refreshStep(int state)
 						reiter.stage = RefreshIter::DELDIR;
 						reiter.prog = 0;
 					}
-					return 0;
+					return 1;
 				}
 			}
 			// no more DELFILE if reach here, move on to next stage
@@ -347,7 +347,7 @@ int Root::refreshStep(int state)
 						reiter.stage = RefreshIter::FILE;
 						reiter.prog = 0;
 					}
-					return 0;
+					return 1;
 				}
 			}
 			// no more DELFILE if reach here, move on to next stage
@@ -368,19 +368,57 @@ int Root::refreshStep(int state)
 					fid = _records[fid].next());
 				if (fid != 0 && _records[fid].isdir())
 					fid = 0;
-				if (fid != 0 && (_records[fid].isdel() ||
-					pathCmpMt(_records[fid].name(_rname), reiter.files[reiter.prog].name) != 0))
+				if (fid == 0 || _records[fid].isdel() ||
+					pathCmpMt(_records[fid].name(_rname), reiter.files[reiter.prog].name) != 0)
 				{
 					PELOG_LOG((PLV_DEBUG, "ADD file detected %s: %s\n", reiter.path.buf(), reiter.files[reiter.prog].name));
 					reiter.prog++;	// move forward before return
-					return 0;
+					return 1;
 				}
 			}
+			reiter.stage = RefreshIter::DIR;
+			reiter.prog = 0;
 			break;
 		}
 
 		case RefreshIter::DIR:
+		{
+			uint32_t did = rec.sub();
+			while (did != 0 && (!_records[did].isdir() || _records[did].isdel()))
+				did = _records[did].next();
+			for (; reiter.prog < reiter.dirs.size(); ++reiter.prog)	// for each physical file
+			{
+				for (; did != 0 && !_records[did].isdir() &&
+					pathCmpMt(_records[did].name(_rname), reiter.dirs[reiter.prog].name) < 0;
+					did = _records[did].next());
+				if (did == 0 || _records[did].isdel() ||
+					pathCmpMt(_records[did].name(_rname), reiter.dirs[reiter.prog].name) != 0)
+				{
+					PELOG_LOG((PLV_DEBUG, "ADD dir detected %s: %s\n", reiter.path.buf(), reiter.dirs[reiter.prog].name));
+					reiter.prog++;	// move forward before return
+					return 1;
+				}
+			}
+			reiter.stage = RefreshIter::RECUR;
+			reiter.prog = 0;
+			break;
+		}
+
 		case RefreshIter::RECUR:
+			if (reiter.prog == 0)
+				reiter.prog = rec.sub();
+			while (reiter.prog != 0 && (!_records[reiter.prog].isdir() || _records[reiter.prog].isdel()))
+				reiter.prog = _records[reiter.prog].next();
+			if (reiter.prog != 0 && _records[reiter.prog].isdir() && !_records[reiter.prog].isdel())
+			{
+				uint32_t recurid = reiter.prog;
+				reiter.prog = _records[reiter.prog].next();
+				restate.resize(restate.size() + 1);
+				restate.back().rid = recurid;
+				break;
+			}
+			reiter.stage = RefreshIter::RETURN;
+			break;
 
 		case RefreshIter::REDOUPPER:		// go back to parent dir and run again
 			if (restate.size() <= 1)
@@ -398,7 +436,7 @@ int Root::refreshStep(int state)
 			if (restate.size() <= 1)
 			{
 				restate.clear();
-				return 1;
+				return 0;
 			}
 			restate.pop_back();
 			assert(restate.back().stage == RefreshIter::RECUR);

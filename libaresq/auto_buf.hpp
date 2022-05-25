@@ -154,7 +154,7 @@ public:
 		abuf_mem_check();
 	}
 
-	abuf(const abuf &r)
+	abuf(const abuf &r) : abuf()
 	{
 		resize(r.size());
 		if (size() > 0)

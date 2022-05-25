@@ -75,6 +75,9 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 	{
 		if (ffd.dwFileAttributes == INVALID_FILE_ATTRIBUTES)
 			continue;
+		if (ffd.cFileName[0] == L'.' && (ffd.cFileName[1] == 0 ||
+			ffd.cFileName[1] == L'.' && ffd.cFileName[2] == 0))
+			continue;	// exluce "." and ".." dirs
 		items.resize(items.size() + 1);
 		FsItem &item = items.back();
 		utf16to8(ffd.cFileName, item.name);
@@ -86,7 +89,7 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 
 	// sort
 	std::sort(items.begin(), items.end(),
-		[](const FsItem &l, const FsItem &r) { return pathCmpSt(l.name, r.name); });
+		[](const FsItem &l, const FsItem &r) { return pathCmpSt(l.name, r.name) < 0; });
 
 	// dedupe and split
 	const char *lname = "";
@@ -132,7 +135,7 @@ int BuildPath(const char **dir, size_t size, abufchar &path)
 	char *po = path;
 	for (size_t i = 0; i < size; ++i)
 	{
-		for (const char *pi = dir[size]; *pi;)
+		for (const char *pi = dir[i]; *pi;)
 			*po++ = *pi++;
 		if (i != size - 1)
 			*po++ = DIRSEP;
