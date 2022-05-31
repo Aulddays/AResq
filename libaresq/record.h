@@ -51,7 +51,7 @@ public:
 	inline uint32_t name() const { return p2l32(_data); }
 	inline void name(uint32_t name) { l2p32(name, _data); }
 	inline const char *name(const char *base) { return base + name(); }
-	inline const char *name(const std::vector<char> &base) { return base.data() + name(); }
+	inline const char *name(const std::vector<char> &base) const { return base.data() + name(); }
 
 	// uint32(_data + 4)
 	inline uint32_t time() const { return p2l32(_data + 4); }
@@ -59,12 +59,12 @@ public:
 
 	// uint24(_data + 8)
 	inline uint32_t next() const { return p2l24(_data + 8); }
-	inline void next(uint32_t nid) { assert(nid < (1 << 24)); l2p24(nid, _data + 8); }
+	inline void next(uint32_t nid) { AAssert(nid < (1 << 24)); l2p24(nid, _data + 8); }
 
 	// for file item (hist, size)
 	// uint24(_data + 11)
 	inline uint32_t hist() const { return p2l24(_data + 11); }
-	inline void hist(uint32_t histid) { assert(histid < (1 << 24)); l2p24(histid, _data + 11); }
+	inline void hist(uint32_t histid) { AAssert(histid < (1 << 24)); l2p24(histid, _data + 11); }
 
 	// uint24(_data + 14)
 	inline uint32_t size24() const { return p2l24(_data + 14); }
@@ -74,11 +74,11 @@ public:
 	// for dir item (parent/hist, sub)
 	// uint24(_data + 11): isdel() ? parent : hist
 	inline uint32_t parent() const { return p2l24(_data + 11); }
-	inline void parent(uint32_t pid) { assert(pid < (1 << 24)); l2p24(pid, _data + 11); }
+	inline void parent(uint32_t pid) { AAssert(pid < (1 << 24)); l2p24(pid, _data + 11); }
 
 	// uint24(_data + 14)
 	inline uint32_t sub() const { return p2l24(_data + 14); }
-	inline void sub(uint32_t subid) { assert(subid < (1 << 24)); l2p24(subid, _data + 14); }
+	inline void sub(uint32_t subid) { AAssert(subid < (1 << 24)); l2p24(subid, _data + 14); }
 
 	// flags uint8(_data + 17): isdir, isdeleted, isslink, ishlink, isexe
 private:
@@ -98,6 +98,10 @@ public:
 
 public:
 	RecordItem()
+	{
+		clear();
+	}
+	void clear()
 	{
 		for (int i = 0; i < sizeof(_data); ++i)
 			_data[i] = 0;

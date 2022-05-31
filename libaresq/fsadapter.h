@@ -30,8 +30,12 @@ struct FsItem
 
 int CreateDir(const char *dir);
 
-int BuildPath(const char *dir, const char *filename, abuf<NCHART> &path);
-int BuildPath(const char **dir, size_t size, abufchar &path);
+uint32_t getDirTime(const char *base, const char *dir, size_t dlen);
+
+int buildPath(const char *dir, const char *filename, abuf<NCHART> &path);
+int buildPath(const char *dir, const char *filename, size_t flen, abuf<NCHART> &path);
+int buildPath(const char **dir, size_t size, abuf<char> &path);
+inline int buildPath(const char *dir, const char *filename, abuf<char> &path) { const char *dirs[] = { dir, filename };  return buildPath(dirs, 2, path); }
 FILE *OpenFile(const char *filename, const NCHART *mode);
 FILE *OpenFile(const char *dir, const char *filename, const NCHART *mode);
 
@@ -39,4 +43,12 @@ int ListDir(const abufchar &dir, std::vector<FsItem> &dirs, std::vector<FsItem> 
 
 int pathCmpSt(const char *l, const char *r);		// keep case diffs near each other but different, used for sort
 int pathCmpDp(const char *l, const char *r);	// completely case insensitive
+int pathCmpDp(const char *l, size_t ll, const char *r);	// completely case insensitive
 int pathCmpMt(const char *l, const char *r);	// to match local file system, St if case sensitive, otherwise Dp
+int pathCmpMt(const char *l, size_t ll, const char *r);	// to match local file system, St if case sensitive, otherwise Dp
+
+int pathAbs2Rel(abufchar &path, const char *base);
+const char *pathAbs2Rel(const char *path, const char *base);
+int pathRel2Abs(abufchar &path, const char *base);
+
+size_t splitPath(const char *path, size_t plen);

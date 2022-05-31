@@ -31,14 +31,28 @@ int CreateDir(const char *dir)
 	return 0;
 }
 
-int BuildPath(const char *dir, const char *filename, abuf<utf16_t> &path)
+int buildPath(const char *dir, const char *filename, abuf<utf16_t> &path)
 {
-	size_t outl = utf8to16_len((const utf8_t *)dir) + 1 + utf8to16_len((const utf8_t *)filename);
+	size_t outl = utf8to16_len((const utf8_t *)dir) + 1 + utf8to16_len((const utf8_t *)filename) + 1;
 	path.resize(outl + 1);
 	outl = 0;
 	utf8to16((const utf8_t *)dir, path, outl);
-	path[outl++] = DIRSEP;
+	if (*dir)
+		path[outl++] = DIRSEP;
 	utf8to16((const utf8_t *)filename, path, outl);
+	return 0;
+}
+
+
+int buildPath(const char *dir, const char *filename, size_t flen, abuf<utf16_t> &path)
+{
+	size_t outl = utf8to16_len(dir) + 1 + utf8to16_len(filename, flen);
+	path.resize(outl + 1);
+	outl = 0;
+	utf8to16(dir, path, outl);
+	if (*dir)
+		path[outl++] = DIRSEP;
+	utf8to16((const utf8_t *)filename, flen, path, outl);
 	return 0;
 }
 
@@ -46,8 +60,13 @@ int BuildPath(const char *dir, const char *filename, abuf<utf16_t> &path)
 FILE *OpenFile(const char *dir, const char *filename, const wchar_t *mode)
 {
 	abuf<utf16_t> path;
-	BuildPath(dir, filename, path);
+	buildPath(dir, filename, path);
 	return _wfopen(path, mode);
+}
+
+inline uint32_t filetime2Timet(FILETIME ft)
+{
+	return (uint32_t)(((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) / 10000000 - 11644473600LL);
 }
 
 int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem> &files)
@@ -60,7 +79,7 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 	abuf<wchar_t> dir(dirlen + 3);
 	size_t cplen = 0;
 	utf8to16(u8dir, dir, cplen);
-	assert(cplen == dirlen);
+	AAssert(cplen == dirlen);
 	dir[dirlen] = DIRSEP;
 	dir[dirlen + 1] = '*';
 	dir[dirlen + 2] = 0;
@@ -82,9 +101,8 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 		FsItem &item = items.back();
 		utf16to8(ffd.cFileName, item.name);
 		item.size = ((uint64_t)ffd.nFileSizeHigh * (MAXDWORD + (uint64_t)1)) + ffd.nFileSizeLow;
-		item.time = (uint32_t)(((uint64_t)ffd.ftLastWriteTime.dwHighDateTime << 32 | ffd.ftLastWriteTime.dwLowDateTime) /
-			10000000 - 11644473600LL);
 		item.isdir(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ? true : false);
+		item.time = filetime2Timet(item.isdir() ? ffd.ftCreationTime : ffd.ftLastWriteTime);
 	} while (FindNextFileW(hFind, &ffd));
 
 	// sort
@@ -111,13 +129,28 @@ int pathCmpMt(const char *l, const char *r)	// case insensitive match on windows
 	return pathCmpDp(l, r);
 }
 
+int pathCmpMt(const char *l, size_t ll, const char *r)	// case insensitive match on windows
+{
+	return pathCmpDp(l, ll, r);
+}
+
+uint32_t getDirTime(const char *base, const char *dir, size_t dlen)
+{
+	abuf<wchar_t> path;
+	buildPath(base, dir, dlen, path);
+	WIN32_FILE_ATTRIBUTE_DATA fad;
+	if (GetFileAttributesExW(path, GetFileExInfoStandard, &fad))
+		return filetime2Timet(fad.ftCreationTime);
+	return 0;
+}
+
 
 // end of win32 specific
 #elif defined __linux__
 static const char DIRSEP = '/';
 #endif	// end of linux specific
 
-int BuildPath(const char **dir, size_t size, abufchar &path)
+int buildPath(const char **dir, size_t size, abuf<char> &path)
 {
 	if (size == 0)
 	{
@@ -137,7 +170,7 @@ int BuildPath(const char **dir, size_t size, abufchar &path)
 	{
 		for (const char *pi = dir[i]; *pi;)
 			*po++ = *pi++;
-		if (i != size - 1)
+		if (i != size - 1 && *dir[i])
 			*po++ = DIRSEP;
 	}
 	*po = 0;
@@ -147,7 +180,7 @@ int BuildPath(const char **dir, size_t size, abufchar &path)
 int pathCmpSt(const char *l, const char *r)		// keep case diffs near each other, used for sort
 {
 	// compare case insensitively first
-	for (const char *tl = l, *tr = r; true; tl++, tr++)
+	for (const unsigned char *tl = (const unsigned char *)l, *tr = (const unsigned char *)r; true; tl++, tr++)
 	{
 		int cl = *tl >= 'A' && *tl <= 'Z' ? *tl + ('a' - 'A') : *tl;
 		int cr = *tr >= 'A' && *tr <= 'Z' ? *tr + ('a' - 'A') : *tr;
@@ -156,22 +189,94 @@ int pathCmpSt(const char *l, const char *r)		// keep case diffs near each other,
 		if (!cl)
 			break;
 	}
-	// equal case insensitively if reaches here, compare again case sensitively
+	// if arrives here, equal case insensitively, compare again case sensitively
 	while (*l && *l == *r)
 		l++, r++;
-	return l - r;
+	return (unsigned char)*l - (unsigned char)*r;
 }
 
 int pathCmpDp(const char *l, const char *r)	// completely case insensitive
 {
-	const unsigned char *tl = (const unsigned char *)l, *tr = (const unsigned char *)r;
-	for (const char *tl = l, *tr = r; true; tl++, tr++)
+	for (const unsigned char *tl = (const unsigned char *)l, *tr = (const unsigned char *)r; true; tl++, tr++)
 	{
 		int cl = *tl >= 'A' && *tl <= 'Z' ? *tl + ('a' - 'A') : *tl;
 		int cr = *tr >= 'A' && *tr <= 'Z' ? *tr + ('a' - 'A') : *tr;
 		if (!cl || cl != cr)
 			return cl - cr;
 	}
-	assert(0);	// should no reach here
+	AAssert(0);	// should no reach here
 	return 0;
+}
+
+int pathCmpDp(const char *l, size_t ll, const char *r)	// completely case insensitive
+{
+	for ( ; ll > 0; l++, r++, ll--)
+	{
+		unsigned char cl = *l >= 'A' && *l <= 'Z' ? *l + ('a' - 'A') : *l;
+		unsigned char cr = *r >= 'A' && *r <= 'Z' ? *r + ('a' - 'A') : *r;
+		if (!cr || cl != cr)
+			return cl - cr;
+	}
+	AAssert(ll == 0);
+	return 0 - (unsigned char)*r;
+}
+
+int pathAbs2Rel(abufchar &path, const char *base)
+{
+	size_t lp = 0, lb = 0;
+	for (const char *pb = base, *pp = path; *pb; ++lb, ++pp, ++pb)
+	{
+		if (*pp != *pb)	// path not starts with base
+			return -1;
+	}
+	AAssert(base[lb] == 0 && path.size() > lb && path[lb] == DIRSEP);
+	for (char *pi = path + lb + 1, *po = path; true; ++pi, ++po)
+	{
+		*po = *pi;
+		if (!*pi)
+		{
+			path.resize(po - path + 1);
+			break;
+		}
+	}
+	return 0;
+}
+
+const char *pathAbs2Rel(const char *path, const char *base)
+{
+	size_t lp = 0, lb = 0;
+	for ( ; *base; ++path, ++base)
+	{
+		if (*base != *path)	// path not starts with base
+			return NULL;
+	}
+	if (!*path)
+		return path;
+	AAssert(*base == 0 && *path == DIRSEP);
+	return path + 1;
+}
+
+int pathRel2Abs(abufchar &path, const char *base)
+{
+	size_t lp = strlen(path);
+	size_t lb = strlen(base);
+	path.resize(lp + lb + 2);
+	memmove(path + lb + 1, path, lp + 1);
+	path[lb] = DIRSEP;
+	memcpy(path, base, lb);
+	return 0;
+}
+
+// return lenth of path
+size_t splitPath(const char *path, size_t plen)
+{
+	if (plen == 0)
+		return 0;
+	AAssert(path[0] != DIRSEP && path[plen - 1] != DIRSEP);
+	for (--plen; plen > 0; --plen)
+	{
+		if (path[plen] == DIRSEP)
+			return plen;
+	}
+	return plen;
 }

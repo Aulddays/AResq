@@ -36,10 +36,13 @@ size_t utf16to8_len(const utf16_t *u16);
 size_t utf16to8(const utf16_t *u16, abuf<utf8_t> &u8);
 size_t utf16to8(const utf16_t *u16, abuf<utf8_t> &u8, size_t &start);
 size_t utf8to16_len(const utf8_t *u8);
+size_t utf8to16_len(const utf8_t *u8, size_t len);
 size_t utf8to16(const utf8_t *u8, abuf<utf16_t> &u16);
 size_t utf8to16(const utf8_t *u8, abuf<utf16_t> &u16, size_t &start);
+size_t utf8to16(const utf8_t *u8, size_t len, abuf<utf16_t> &u16, size_t &start);
 
 inline size_t utf16to8(const utf16_t *u16, abuf<char> &u8) { return utf16to8(u16, *(abuf<utf8_t>*)&u8); }
 inline size_t utf8to16_len(const char *u8) { return utf8to16_len((const utf8_t *)u8); }
+inline size_t utf8to16_len(const char *u8, size_t len) { return utf8to16_len((const utf8_t *)u8, len); }
 inline size_t utf8to16(const char *u8, abuf<utf16_t> &u16) { return utf8to16((const utf8_t *)u8, u16); }
 inline size_t utf8to16(const char *u8, abuf<utf16_t> &u16, size_t &start) { return utf8to16((const utf8_t *)u8, u16, start); }

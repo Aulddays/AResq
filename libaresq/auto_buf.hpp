@@ -92,12 +92,12 @@ protected:
 	// Failure of this assertion indicates there was an overflow while using abuf. Check your code!
 #	define abuf_mem_check() do { \
 	if(_size > 0) \
-		assert( (*(uint32_t*)_inbuf) == abuf_mem_check_dword && \
+		AAssert( (*(uint32_t*)_inbuf) == abuf_mem_check_dword && \
 			(*(uint32_t*)(_inbuf + 4 + _size * sizeof(T))) ==  abuf_mem_check_dword); \
 	} while (false)
 #	define abufchar_mem_check() do { \
 	if(_size > 0) \
-		assert( (*(uint32_t*)_inbuf) == abuf_mem_check_dword && \
+		AAssert( (*(uint32_t*)_inbuf) == abuf_mem_check_dword && \
 			(*(uint32_t*)(_inbuf + 4 + _size * sizeof(char))) ==  abuf_mem_check_dword); \
 	} while (false)
 #else

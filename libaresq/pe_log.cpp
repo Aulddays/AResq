@@ -1,6 +1,5 @@
 #include "stdafx.h"
 #include <algorithm>
-#define NOMINMAX 1
 #include "stdarg.h"
 #include "stdio.h"
 #include <time.h>
@@ -202,6 +201,10 @@ static struct PelogOutStream
 		if (fmaxsize != (size_t)-1)
 			fsize += size;
 	}
+	void flush()
+	{
+		fflush(stream);
+	}
 
 } pelog_out_stream;
 
@@ -289,4 +292,9 @@ int pelog_setfile_rotate(size_t filesize_kb, size_t maxkeep, const char *fileNam
 				(unsigned long long)filesize_kb, (unsigned long long)maxkeep));
 	}
 	return pelog_out_stream.setrot(filesize_kb * 1024, maxkeep, fileName, linebuf);
+}
+
+void pelog_flush()
+{
+	pelog_out_stream.flush();
 }

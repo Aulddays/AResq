@@ -5,6 +5,14 @@
 
 #pragma once
 
+#ifdef _MSC_VER
+#ifdef NDEBUG
+#define AAssert(_Expression)     ((void)0)
+#else
+#define AAssert(_Expression) do {volatile int tmp = 0; (void)( (!!(_Expression)) || (tmp / tmp) );} while(false)
+#endif
+#endif
+
 #include "targetver.h"
 
 #define _CRT_SECURE_NO_WARNINGS

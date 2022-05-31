@@ -30,3 +30,4 @@ int pelog_setlevel(int level, int *old_level = NULL);
 int pelog_setlevel(const char *level, int *old_level = NULL);
 int pelog_setfile(const char *fileName, bool linebuf = false);
 int pelog_setfile_rotate(size_t filesize_kb, size_t maxkeep, const char *fileName, bool linebuf = false);
+void pelog_flush();

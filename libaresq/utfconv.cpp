@@ -141,7 +141,7 @@ inline size_t utf16to8_char_len(const utf16_t *&utf16)
 inline size_t encode_utf8(codepoint_t codepoint, abuf<utf8_t> &u8, size_t index)
 {
 	int size = utf8_char_len(codepoint);
-	assert(index + size < u8.size());
+	AAssert(index + size < u8.size());
 
 	// Write the continuation bytes in reverse order
 	for (int cont_index = size - 1; cont_index > 0; cont_index--)
@@ -219,14 +219,14 @@ inline size_t encode_utf16(codepoint_t codepoint, abuf<utf16_t> &u16, size_t ind
 	if (codepoint == 0)
 		return 0;
 
-	assert(index < u16.size() - 1);
+	AAssert(index < u16.size() - 1);
 	if (codepoint <= BMP_END)
 	{
 		u16[index] = codepoint;
 		return 1;
 	}
 
-	assert(index < u16.size() - 2);
+	AAssert(index < u16.size() - 2);
 	codepoint -= SURROGATE_CODEPOINT_OFFSET;
 	utf16_t low = LOW_SURROGATE_VALUE | (codepoint & SURROGATE_CODEPOINT_MASK);
 	codepoint >>= SURROGATE_CODEPOINT_BITS;
@@ -286,6 +286,15 @@ size_t utf8to16_len(const utf8_t *u8)
 	return utf16_len;
 }
 
+size_t utf8to16_len(const utf8_t *u8, size_t len)
+{
+	size_t utf16_len = 0;
+	// determine the output size
+	for (const utf8_t *u8t = u8; len > 0; --len)
+		utf16_len += utf8to16_char_len(u8t);
+	return utf16_len;
+}
+
 size_t utf8to16(const utf8_t *u8, abuf<utf16_t> &u16)
 {
 	size_t utf16_index = 0;
@@ -304,6 +313,14 @@ size_t utf8to16(const utf8_t *u8, abuf<utf16_t> &u16)
 size_t utf8to16(const utf8_t *u8, abuf<utf16_t> &u16, size_t &index)
 {
 	for (const utf8_t *u8t = u8; *u8t;)
+		index += encode_utf16(decode_utf8(u8t), u16, index);
+	u16[index] = 0;
+	return index;
+}
+
+size_t utf8to16(const utf8_t *u8, size_t len, abuf<utf16_t> &u16, size_t &index)
+{
+	for (const utf8_t *u8t = u8; len > 0; --len)
 		index += encode_utf16(decode_utf8(u8t), u16, index);
 	u16[index] = 0;
 	return index;
