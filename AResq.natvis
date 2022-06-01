@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- VS object visualization termplate for RecordItem -->
+<!-- For VS2012/2013, Put this file in %USERPROFILE%\Documents\Visual Studio 2012\Visualizers\ -->
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+	<Type Name="RecordItem">
+		<DisplayString Condition="(_data[17] &amp; 1) &amp;&amp; (_data[17] &amp; 2) == 0">
+			[{_data[0]+_data[1]*0x100u+_data[2]*0x10000u+_data[3]*0x1000000u}]&#160;
+			DIR sub={_data[14]+_data[15]*0x100u+_data[16]*0x10000u}&#160;
+			parent={_data[11]+_data[12]*0x100u+_data[13]*0x10000u}&#160;
+			next={_data[8]+_data[9]*0x100u+_data[10]*0x10000u}
+		</DisplayString>
+		<DisplayString Condition="(_data[17] &amp; 1) &amp;&amp; (_data[17] &amp; 2) == 1">
+			[{_data[0]+_data[1]*0x100u+_data[2]*0x10000u+_data[3]*0x1000000u}] 
+			DIRDEL
+		</DisplayString>
+		<DisplayString Condition="(_data[17] &amp; 1) == 0">
+			[{_data[0]+_data[1]*0x100u+_data[2]*0x10000u+_data[3]*0x1000000u}] 
+			FILE del={(_data[17]&amp;2)?1:0} next={_data[8]+_data[9]*0x100u+_data[10]*0x10000u}
+		</DisplayString>
+		<Expand>
+			<Item Name="type">_data[17] &amp; 1 ? "DIR" : "FILE"</Item>
+			<Item Name="name">_data[0]+_data[1]*0x100u+_data[2]*0x10000u+_data[3]*0x1000000u</Item>
+			<Item Name="isdel">_data[17] &amp; 2 ? true : false</Item>
+			<Item Name="sub" Condition="_data[17] &amp; 1">_data[14]+_data[15]*0x100u+_data[16]*0x10000u</Item>
+			<Item Name="parent" Condition="(_data[17] &amp; 1) &amp;&amp; (_data[17] &amp; 2) == 0">
+				_data[11]+_data[12]*0x100u+_data[13]*0x10000u
+			</Item>
+			<Item Name="next">_data[8]+_data[9]*0x100u+_data[10]*0x10000u</Item>
+			<Item Name="time">_data[4]+_data[5]*0x100u+_data[6]*0x10000u+_data[7]*0x1000000u</Item>
+			<Item Name="size24" Condition="(_data[17] &amp; 1)==0">_data[14]+_data[15]*0x100u+_data[16]*0x10000u</Item>
+		</Expand>
+	</Type>
+</AutoVisualizer>

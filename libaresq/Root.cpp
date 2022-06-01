@@ -252,6 +252,7 @@ int Root::refreshStep(int state, Action &action)
 		{
 			RefreshIter &reiter = restate[i];
 			RecordItem &rec = _records[reiter.rid];
+			AAssert(*rec.name(_rname));
 			pathparts.push_back(rec.name(_rname));
 			abuf<char> testpath;
 			buildPath(pathparts.data(), pathparts.size(), testpath);
@@ -460,7 +461,7 @@ int Root::refreshStep(int state, Action &action)
 				reiter.prog = rec.sub();
 			while (reiter.prog != 0 && (!_records[reiter.prog].isdir() || _records[reiter.prog].isdel()))
 				reiter.prog = _records[reiter.prog].next();
-			if (reiter.prog != 0 && _records[reiter.prog].isdir() && !_records[reiter.prog].isdel())
+			if (reiter.prog != 0 && _records[reiter.prog].isdir() && !_records[reiter.prog].isdel() && *getName(reiter.prog))
 			{
 				uint32_t recurid = reiter.prog;
 				reiter.prog = _records[reiter.prog].next();
@@ -509,7 +510,7 @@ int Root::refreshStep(int state, Action &action)
 	return 0;
 }
 
-// did: output the target directory id
+// did: output the target directory record id
 int Root::addDir(const char *dir, size_t dlen, uint32_t &did)
 {
 	int res = OK;
@@ -547,6 +548,7 @@ int Root::addDir(const char *dir, size_t dlen, uint32_t &did)
 		uint32_t lbid = preptr(this);
 		if (_records[lbid].isdir() && !*getName(lbid))	// found loopback record
 		{
+			PELOG_LOG((PLV_DEBUG, "Reusing a loopback record\n"));
 			preptr(_records[lbid].next(), this);	// detach it
 			did = lbid;	// use it as the new record
 			cids.push_back(did);
@@ -570,6 +572,89 @@ int Root::addDir(const char *dir, size_t dlen, uint32_t &did)
 	AAssert(verifydir(pid));
 #endif
 	PELOG_LOG((PLV_INFO, "DIR ADDed %s : %.*s\n", root.c_str(), dlen, dir));
+	return OK;
+}
+
+// fid: output the target file record id
+int Root::addFile(const char *file, size_t flen, uint32_t &fid)
+{
+	// TODO: manage history versions
+	int res = OK;
+	// process parents
+	size_t baselen = splitPath(file, flen);
+	uint32_t pid = 1;
+	if (baselen > 0 && (res = addDir(file, baselen, pid)) != OK)	// not in top level dir, create parents
+		return res;
+	const char *name = baselen == 0 ? file : file + baselen + 1;
+	size_t nlen = flen - (name - file);
+	// get attr
+	uint32_t ftime = 0;
+	uint64_t fsize = 0;
+	if (getFileAttr(root.c_str(), file, flen, ftime, fsize) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Get file attr failed. %s : %.*s\n", root.c_str(), flen, file), NOTFOUND);
+	PELOG_LOG((PLV_TRACE, "FILE size %llu time %u. %s : %.*s\n", fsize, ftime, root.c_str(), flen, file));
+	// check local
+	FindResult dtype = FR_MATCH;
+	fid = findRecord(pid, name, nlen, FO_FILE, dtype);
+	if (dtype == FR_MATCH && fid != 0 && _records[fid].isdir())	// local is a dir, error
+		PELOG_ERROR_RETURN((PLV_ERROR, "Create file failed. dir exists. %.*s\n", flen, file), CONFLICT);
+	if (dtype == FR_MATCH && fid != 0 && !_records[fid].isdir() &&
+		_records[fid].time() == ftime && !_records[fid].sizeChanged(fsize))	// local already exists & no change
+		return OK;
+	AAssert(fid != 0);
+	uint32_t preid = dtype == FR_PRE ? fid : 0;
+	fid = dtype == FR_MATCH ? fid : 0;
+	// add remote first
+	if ((res = _remote->addFile(file, flen)) != Remote::OK)
+	{
+		if (res != Remote::DISCONNECTED)
+			PELOG_ERROR_RETURN((PLV_ERROR, "Create file failed. remote error %d. %.*s\n", res, flen, file), REMOTEERR);
+		else
+			PELOG_ERROR_RETURN((PLV_TRACE, "Remote disconnected.\n"), DISCONNECTED);
+	}
+	// add local
+	std::vector<uint32_t> cids;	// changed ids
+	RecPtr preptr;
+	if (fid != 0)	// already exists, reuse it and look for pre
+	{
+		for (preptr.set(pid, RPSUB); preptr(this) != 0 && preptr(this) != fid; preptr.set(preptr(this), RPNEXT))
+		{
+			if (preptr(this) == fid)
+				break;
+		}
+		AAssert(preptr(this) == fid);
+	}
+	else
+	{
+		AAssert(preid != 0);
+		preptr.set(preid, preid == pid ? RPSUB : RPNEXT);
+		fid = allocRec(cids);
+		_records[fid].name(allocRName(name, nlen));
+		_records[fid].next(preptr(this));
+		preptr(fid, this);
+		cids.push_back(preid);
+	}
+	cids.push_back(fid);
+	RecordItem &fitem = _records[fid];
+	fitem.isdir(false);
+	fitem.time(ftime);
+	fitem.size24(fsize);
+	fitem.isdel(false);
+	// add a loopback record if there isn't one
+	for (preptr.set(fid, RPNEXT); preptr(this) != 0; preptr.set(preptr(this), RPNEXT))
+		;	// look for the last record in this dir
+	if (!_records[preptr._id].isdir() || _records[preptr._id].isdel() || *getName(preptr._id))	// no loopback
+	{
+		uint32_t lbid = allocRec(cids);
+		_records[lbid].isdir(true);
+		_records[lbid].parent(pid);
+		cids.push_back(preptr._id);
+		preptr(lbid, this);
+	}
+#ifdef _DEBUG
+	AAssert(verifydir(pid));
+#endif
+	PELOG_LOG((PLV_INFO, "FILE ADDed %s : %.*s\n", root.c_str(), flen, file));
 	return OK;
 }
 
@@ -619,14 +704,14 @@ uint32_t Root::allocRName(const char *name, uint32_t len)
 	_rname.resize(base + len + 1);
 	memcpy(&_rname[base], name, len);
 	_rname[base + len] = 0;
-	// write back
-	FILE *fp = OpenFile(recpath.c_str(), "rname", _NCT("rb+"));
-	AAssert(fp);
-	fseek(fp, base, SEEK_SET);
-	AAssert(ftell(fp) == base);
-	size_t res = fwrite(&_rname[base], 1, len + 1, fp);
-	AAssert(res == len + 1);
-	fclose(fp);
+	//// write back
+	//FILE *fp = OpenFile(recpath.c_str(), "rname", _NCT("rb+"));
+	//AAssert(fp);
+	//fseek(fp, base, SEEK_SET);
+	//AAssert(ftell(fp) == base);
+	//size_t res = fwrite(&_rname[base], 1, len + 1, fp);
+	//AAssert(res == len + 1);
+	//fclose(fp);
 	return base;
 }
 
@@ -663,10 +748,13 @@ int Root::writeRec(std::vector<uint32_t> &cids)
 
 int Root::perform(Action &action)
 {
+	uint32_t rid = 0;
 	switch (action.type)
 	{
 	case Action::ADDDIR:
-		return addDir(action.name);
+		return addDir(action.name, strlen(action.name), rid);
+	case Action::ADDFILE:
+		return addFile(action.name, strlen(action.name), rid);
 	}
 	PELOG_ERROR_RETURN((PLV_WARNING, "Unsupported action %d\n", action.type), 0);
 }

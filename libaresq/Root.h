@@ -17,6 +17,7 @@ public:
 		DISCONNECTED = -1,
 		CONFLICT = -2,
 		REMOTEERR = -3,
+		NOTFOUND = -4,
 	};
 public:
 	Root(const char *recpath, const char *root);
@@ -34,9 +35,11 @@ public:
 	// return: 0: finished, >0: one step, <0: error
 	int refreshStep(int state, Action &action);
 	int perform(Action &action);
-	int addDir(const char *dir) { uint32_t did = 0;  return addDir(dir, strlen(dir), did); }
+	//int addDir(const char *dir) { uint32_t did = 0;  return addDir(dir, strlen(dir), did); }
+	//int addFile(const char *file) { uint32_t fid = 0;  return addDir(file, strlen(file), fid); }
 
 	int addDir(const char *dir, size_t dlen, uint32_t &did);
+	int addFile(const char *file, size_t flen, uint32_t &fid);
 
 	// look for the specific name under pid
 	// FindOptions specifies which type of item to find

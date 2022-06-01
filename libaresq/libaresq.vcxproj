@@ -91,6 +91,9 @@
     </ClCompile>
     <ClCompile Include="utfconv.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="..\AResq.natvis" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

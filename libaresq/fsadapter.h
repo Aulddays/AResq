@@ -31,6 +31,7 @@ struct FsItem
 int CreateDir(const char *dir);
 
 uint32_t getDirTime(const char *base, const char *dir, size_t dlen);
+int getFileAttr(const char *base, const char *filename, size_t fnlen, uint32_t &ftime, uint64_t &fsize);
 
 int buildPath(const char *dir, const char *filename, abuf<NCHART> &path);
 int buildPath(const char *dir, const char *filename, size_t flen, abuf<NCHART> &path);

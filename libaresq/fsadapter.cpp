@@ -144,6 +144,18 @@ uint32_t getDirTime(const char *base, const char *dir, size_t dlen)
 	return 0;
 }
 
+int getFileAttr(const char *base, const char *filename, size_t fnlen, uint32_t &ftime, uint64_t &fsize)
+{
+	ftime = fsize = 0;
+	abuf<wchar_t> path;
+	buildPath(base, filename, fnlen, path);
+	WIN32_FILE_ATTRIBUTE_DATA fad;
+	if (!GetFileAttributesExW(path, GetFileExInfoStandard, &fad))
+		return -1;
+	ftime = filetime2Timet(fad.ftLastWriteTime);
+	fsize = ((uint64_t)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
+	return 0;
+}
 
 // end of win32 specific
 #elif defined __linux__

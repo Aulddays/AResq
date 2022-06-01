@@ -16,6 +16,7 @@ public:
 	virtual ~Remote();
 public:
 	virtual int addDir(const char *path, size_t plen) = 0;
+	virtual int addFile(const char *path, size_t plen) = 0;
 };
 
 
@@ -25,6 +26,11 @@ public:
 	virtual int addDir(const char *path, size_t plen)
 	{
 		PELOG_LOG((PLV_INFO, "RemoteDummy addDir %.*s\n", plen, path));
+		return 0;
+	}
+	virtual int addFile(const char *path, size_t plen)
+	{
+		PELOG_LOG((PLV_INFO, "RemoteDummy addFile %.*s\n", plen, path));
 		return 0;
 	}
 };
