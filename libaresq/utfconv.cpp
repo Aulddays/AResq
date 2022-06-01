@@ -141,7 +141,7 @@ inline size_t utf16to8_char_len(const utf16_t *&utf16)
 inline size_t encode_utf8(codepoint_t codepoint, abuf<utf8_t> &u8, size_t index)
 {
 	int size = utf8_char_len(codepoint);
-	AAssert(index + size < u8.size());
+	AuVerify(index + size < u8.size());
 
 	// Write the continuation bytes in reverse order
 	for (int cont_index = size - 1; cont_index > 0; cont_index--)
@@ -219,14 +219,14 @@ inline size_t encode_utf16(codepoint_t codepoint, abuf<utf16_t> &u16, size_t ind
 	if (codepoint == 0)
 		return 0;
 
-	AAssert(index < u16.size() - 1);
+	AuVerify(index < u16.size() - 1);
 	if (codepoint <= BMP_END)
 	{
 		u16[index] = codepoint;
 		return 1;
 	}
 
-	AAssert(index < u16.size() - 2);
+	AuVerify(index < u16.size() - 2);
 	codepoint -= SURROGATE_CODEPOINT_OFFSET;
 	utf16_t low = LOW_SURROGATE_VALUE | (codepoint & SURROGATE_CODEPOINT_MASK);
 	codepoint >>= SURROGATE_CODEPOINT_BITS;

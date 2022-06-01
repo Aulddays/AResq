@@ -70,6 +70,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="ap_dirent.h" />
+    <ClInclude Include="audbg.h" />
     <ClInclude Include="auto_buf.hpp" />
     <ClInclude Include="fsadapter.h" />
     <ClInclude Include="pe_log.h" />

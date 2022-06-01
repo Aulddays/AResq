@@ -79,7 +79,7 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 	abuf<wchar_t> dir(dirlen + 3);
 	size_t cplen = 0;
 	utf8to16(u8dir, dir, cplen);
-	AAssert(cplen == dirlen);
+	AuVerify(cplen == dirlen);
 	dir[dirlen] = DIRSEP;
 	dir[dirlen + 1] = '*';
 	dir[dirlen + 2] = 0;
@@ -216,7 +216,7 @@ int pathCmpDp(const char *l, const char *r)	// completely case insensitive
 		if (!cl || cl != cr)
 			return cl - cr;
 	}
-	AAssert(0);	// should no reach here
+	AuVerify(0);	// should no reach here
 	return 0;
 }
 
@@ -229,7 +229,7 @@ int pathCmpDp(const char *l, size_t ll, const char *r)	// completely case insens
 		if (!cr || cl != cr)
 			return cl - cr;
 	}
-	AAssert(ll == 0);
+	AuVerify(ll == 0);
 	return 0 - (unsigned char)*r;
 }
 
@@ -241,7 +241,7 @@ int pathAbs2Rel(abufchar &path, const char *base)
 		if (*pp != *pb)	// path not starts with base
 			return -1;
 	}
-	AAssert(base[lb] == 0 && path.size() > lb && path[lb] == DIRSEP);
+	AuVerify(base[lb] == 0 && path.size() > lb && path[lb] == DIRSEP);
 	for (char *pi = path + lb + 1, *po = path; true; ++pi, ++po)
 	{
 		*po = *pi;
@@ -264,7 +264,7 @@ const char *pathAbs2Rel(const char *path, const char *base)
 	}
 	if (!*path)
 		return path;
-	AAssert(*base == 0 && *path == DIRSEP);
+	AuVerify(*base == 0 && *path == DIRSEP);
 	return path + 1;
 }
 
@@ -284,7 +284,7 @@ size_t splitPath(const char *path, size_t plen)
 {
 	if (plen == 0)
 		return 0;
-	AAssert(path[0] != DIRSEP && path[plen - 1] != DIRSEP);
+	AuVerify(path[0] != DIRSEP && path[plen - 1] != DIRSEP);
 	for (--plen; plen > 0; --plen)
 	{
 		if (path[plen] == DIRSEP)

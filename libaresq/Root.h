@@ -91,10 +91,10 @@ private:
 	{
 		uint32_t _id = 0;
 		RecPtrType _type = RPNONE;
-		inline void set(uint32_t id, RecPtrType type) { _id = id; _type = type; AAssert(type != RPNONE); }
+		inline void set(uint32_t id, RecPtrType type) { _id = id; _type = type; AuVerify(type != RPNONE); }
 		inline uint32_t operator()(Root *root)
 		{
-			AAssert(_id != 0 && (_type == RPSUB || _type == RPNEXT));
+			AuVerify(_id != 0 && (_type == RPSUB || _type == RPNEXT));
 			if (_type == RPSUB)
 				return root->_records[_id].sub();
 			else
@@ -102,7 +102,7 @@ private:
 		}
 		inline void operator()(uint32_t tid, Root *root)
 		{
-			AAssert(_id != 0 && (_type == RPSUB || _type == RPNEXT));
+			AuVerify(_id != 0 && (_type == RPSUB || _type == RPNEXT));
 			if (_type == RPSUB)
 				root->_records[_id].sub(tid);
 			else
@@ -122,7 +122,7 @@ private:
 	bool verifyrec(RootStat *stat=NULL) const;
 	bool verifydir(uint32_t pid) const;
 
-	inline const char *getName(uint32_t rid) const { AAssert(rid > 1 && rid < _records.size()); return _records[rid].name(_rname); }
+	inline const char *getName(uint32_t rid) const { AuVerify(rid > 1 && rid < _records.size()); return _records[rid].name(_rname); }
 
 	// records operations
 	uint32_t allocRName(const char *name, size_t len);	// alloc string in _rname, and write to disk
