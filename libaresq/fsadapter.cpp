@@ -189,6 +189,23 @@ int buildPath(const char **dir, size_t size, abuf<char> &path)
 	return 0;
 }
 
+int buildPath(const char *dir, size_t dirlen, const char *file, size_t filelen, abuf<char> &path)
+{
+	AuVerify(filelen != 0);
+	path.resize((dirlen != 0 ? dirlen + 1 : 0) + filelen + 1);
+	char *po = path;
+	if (dirlen > 0)
+	{
+		for (size_t i = 0; i < dirlen; ++i)
+			*po++ = dir[i];
+		*po++ = DIRSEP;
+	}
+	for (size_t i = 0; i < filelen; ++i)
+		*po++ = file[i];
+	*po = 0;
+	return 0;
+}
+
 int pathCmpSt(const char *l, const char *r)		// keep case diffs near each other, used for sort
 {
 	// compare case insensitively first

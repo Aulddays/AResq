@@ -18,6 +18,7 @@ public:
 		CONFLICT = -2,
 		REMOTEERR = -3,
 		NOTFOUND = -4,
+		NOTIMPLEMENTED = -5,
 	};
 public:
 	Root(const char *recpath, const char *root);
@@ -36,10 +37,15 @@ public:
 	int refreshStep(int state, Action &action);
 	int perform(Action &action);
 	//int addDir(const char *dir) { uint32_t did = 0;  return addDir(dir, strlen(dir), did); }
-	//int addFile(const char *file) { uint32_t fid = 0;  return addDir(file, strlen(file), fid); }
+	int addFile(const char *file) { uint32_t fid = 0;  return addFile(file, strlen(file), fid); }
 
 	int addDir(const char *dir, size_t dlen, uint32_t &did);
+	int delDir(const char *dir, size_t dlen);
+	int delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen);
 	int addFile(const char *file, size_t flen, uint32_t &fid);
+	int delFile(const char *filename, size_t flen);
+	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen);
+	int eraseName(uint32_t rid);
 
 	// look for the specific name under pid
 	// FindOptions specifies which type of item to find
@@ -51,11 +57,14 @@ public:
 	enum FindOption { FO_FILE, FO_FILEDEL, FO_DIR, FO_DIRDEL };
 	enum FindResult { FR_MATCH, FR_PRE };
 	uint32_t findRecord(uint32_t pid, const char *name, size_t namelen, FindOption option, FindResult &restype);
+	// look in whole root, parent id will be in `pid`
+	uint32_t findRecord(const char *name, size_t namelen, FindOption option, FindResult &restype, uint32_t &pid);
 
 private:
 	std::string root;
 	//abuf<char> ncroot;
 	std::string recpath;
+	size_t _histnum = 0;
 	std::vector<RecordItem> _records;
 	std::vector<char> _rname;
 	std::vector<HistItem> _hists;
@@ -127,6 +136,7 @@ private:
 	// records operations
 	uint32_t allocRName(const char *name, size_t len);	// alloc string in _rname, and write to disk
 	uint32_t allocRec(std::vector<uint32_t> &cids);		// alloc a new item in _record. change in memory only, use writeRec() to write to disk
+	int recycleRec(uint32_t rid, std::vector<uint32_t> &cids);
 	int writeRec(std::vector<uint32_t> &cids);	// write back records to file
 };
 

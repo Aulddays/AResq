@@ -36,6 +36,7 @@ int getFileAttr(const char *base, const char *filename, size_t fnlen, uint32_t &
 int buildPath(const char *dir, const char *filename, abuf<NCHART> &path);
 int buildPath(const char *dir, const char *filename, size_t flen, abuf<NCHART> &path);
 int buildPath(const char **dir, size_t size, abuf<char> &path);
+int buildPath(const char *dir, size_t dirlen, const char *file, size_t filelen, abuf<char> &path);
 inline int buildPath(const char *dir, const char *filename, abuf<char> &path) { const char *dirs[] = { dir, filename };  return buildPath(dirs, 2, path); }
 FILE *OpenFile(const char *filename, const NCHART *mode);
 FILE *OpenFile(const char *dir, const char *filename, const NCHART *mode);
