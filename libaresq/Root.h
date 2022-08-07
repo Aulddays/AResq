@@ -28,7 +28,7 @@ public:
 
 	struct Action
 	{
-		enum { NONE, ADDDIR, DELDIR, ADDFILE, DELFILE, RENAME} type = NONE;
+		enum { NONE, ADDDIR, DELDIR, ADDFILE, DELFILE, MODFILE, RENAME} type = NONE;
 		abufchar name;
 		abufchar dst;
 	};

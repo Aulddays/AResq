@@ -161,6 +161,13 @@ public:
 			memcpy(buf(), r.buf(), size());
 	}
 
+	abuf(const T *r, size_t size) : abuf()
+	{
+		resize(size);
+		if (size > 0)
+			memcpy(buf(), r, size);
+	}
+
 	abuf& operator =(const abuf &r)
 	{
 		resize(0);
@@ -197,10 +204,10 @@ public:
 	 * @return int 0 if succeeded. other if failed (original buffer 
 	 *  	   will be kept even if resize fails)
 	 */
-	int resize(size_t new_element_count)
+	int resize(size_t new_element_count, bool force_shrink = false)
 	{
 		abuf_mem_check();
-		if(new_element_count > _size)
+		if(new_element_count > _size || new_element_count < _size && new_element_count > 0 && force_shrink)
 		{
 #ifdef _ABUF_DEBUG_PAD_
 			uint8_t *nbuf = (uint8_t *)realloc(_inbuf, new_element_count * sizeof(T) + 8);

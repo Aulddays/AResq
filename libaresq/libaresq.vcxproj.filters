@@ -13,6 +13,12 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="smb">
+      <UniqueIdentifier>{1b615e04-2187-4bf2-80ff-c03f4ba19503}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="libsmb2">
+      <UniqueIdentifier>{bd88894f-3684-4ab7-ac69-004964b9b613}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -48,6 +54,81 @@
     <ClInclude Include="audbg.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="IgnoreList.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\aes.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\aes128ccm.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\compat.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\hmac-md5.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\krb5-wrapper.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\libsmb2.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\libsmb2-dcerpc.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\libsmb2-dcerpc-lsa.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\libsmb2-dcerpc-srvsvc.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\libsmb2-raw.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\md4.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\md5.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\ntlmssp.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\sha.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\sha-private.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\smb2.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\smb2-errors.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\smb2-signing.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\smb3-seal.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\portable-endian.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\libsmb2-private.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\msvc\sys\socket.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
+    <ClInclude Include="RemoteSmb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="libsmb2\msvc\poll.h">
+      <Filter>libsmb2</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -66,6 +147,156 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Remote.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="IgnoreList.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\aes.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\aes128ccm.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\alloc.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\compat.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\dcerpc.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\dcerpc-lsa.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\dcerpc-srvsvc.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\errors.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\hmac.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\hmac-md5.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\init.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\krb5-wrapper.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\libsmb2.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\md4c.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\md5.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\ntlmssp.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\pdu.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\sha1.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\sha224-256.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\sha384-512.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-close.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-create.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-echo.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-error.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-flush.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-ioctl.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-logoff.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-negotiate.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-query-directory.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-query-info.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-read.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-session-setup.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-set-info.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-tree-connect.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-tree-disconnect.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-cmd-write.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-data-file-info.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-data-filesystem-info.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-data-reparse-point.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-data-security-descriptor.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-share-enum.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb2-signing.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\smb3-seal.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\socket.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\sync.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\timestamps.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\unicode.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="libsmb2\usha.c">
+      <Filter>libsmb2</Filter>
+    </ClCompile>
+    <ClCompile Include="RemoteSmb.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

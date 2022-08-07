@@ -472,6 +472,15 @@ int Root::refreshStep(int state, Action &action)
 					reiter.prog++;	// move forward before return
 					return 1;
 				}
+				else if (_records[fid].sizeChanged(reiter.files[reiter.prog].size) ||
+					abs((int64_t)_records[fid].time() - (int64_t)reiter.files[reiter.prog].time) > 10)
+				{
+					PELOG_LOG((PLV_DEBUG, "MOD file detected %s: %s\n", reiter.path.buf(), reiter.files[reiter.prog].name));
+					action.type = Action::ADDFILE;
+					buildPath(pathAbs2Rel(reiter.path.buf(), root.c_str()), reiter.files[reiter.prog].name, action.name);
+					reiter.prog++;	// move forward before return
+					return 1;
+				}
 			}
 			reiter.stage = RefreshIter::DIR;
 			reiter.prog = 0;
@@ -647,8 +656,9 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid)
 	if (dtype == FR_MATCH && fid != 0 && _records[fid].isdir())	// local is a dir, error
 		PELOG_ERROR_RETURN((PLV_ERROR, "Create file failed. dir exists. %.*s\n", flen, file), CONFLICT);
 	if (dtype == FR_MATCH && fid != 0 && !_records[fid].isdir() &&
-		_records[fid].time() == ftime && !_records[fid].sizeChanged(fsize))	// local already exists & no change
+			_records[fid].time() == ftime && !_records[fid].sizeChanged(fsize))	// local already exists & no change
 		return OK;
+	bool isnew = !(dtype == FR_MATCH && fid != 0 && !_records[fid].isdir());
 	AuVerify(fid != 0);
 	uint32_t preid = dtype == FR_PRE ? fid : 0;
 	fid = dtype == FR_MATCH ? fid : 0;
@@ -702,7 +712,7 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid)
 	}
 	AuAssert(verifydir(pid));
 	writeRec(cids);
-	PELOG_LOG((PLV_INFO, "FILE ADDed(%u) %s : %.*s\n", fid, root.c_str(), flen, file));
+	PELOG_LOG((PLV_INFO, "FILE %s(%u) %s : %.*s\n", isnew ? "ADDed" : "MODed", fid, root.c_str(), flen, file));
 	return OK;
 }
 
@@ -1026,6 +1036,7 @@ int Root::perform(Action &action)
 	case Action::ADDDIR:
 		return addDir(action.name, strlen(action.name), rid);
 	case Action::ADDFILE:
+	case Action::MODFILE:
 		return addFile(action.name, strlen(action.name), rid);
 	case Action::DELDIR:
 		return delDir(action.name, strlen(action.name));
