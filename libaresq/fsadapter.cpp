@@ -9,8 +9,6 @@
 #include <Windows.h>
 #include <tchar.h>
 
-static const char DIRSEP = '\\';
-
 void Utf8toNchar(const char *utf8, abuf<NCHART> &ncs)
 {
 	utf8to16((const utf8_t *)utf8, ncs);
@@ -56,6 +54,12 @@ int buildPath(const char *dir, const char *filename, size_t flen, abuf<utf16_t> 
 	return 0;
 }
 
+FILE *OpenFile(const char *filename, const wchar_t *mode)
+{
+	abuf<utf16_t> path;
+	utf8to16(filename, path);
+	return _wfopen(path, mode);
+}
 
 FILE *OpenFile(const char *dir, const char *filename, const wchar_t *mode)
 {
@@ -159,7 +163,6 @@ int getFileAttr(const char *base, const char *filename, size_t fnlen, uint32_t &
 
 // end of win32 specific
 #elif defined __linux__
-static const char DIRSEP = '/';
 #endif	// end of linux specific
 
 int buildPath(const char **dir, size_t size, abuf<char> &path)

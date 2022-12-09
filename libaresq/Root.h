@@ -21,7 +21,8 @@ public:
 		NOTIMPLEMENTED = -5,
 	};
 public:
-	Root(const char *recpath, const char *root);
+	// back up contents of `root` into remote/`name`, using `recpath` as local registry
+	Root(const char *name, const char *root, const char *recpath);
 	~Root();
 
 	int load();
@@ -35,16 +36,16 @@ public:
 	int startRefresh();
 	// return: 0: finished, >0: one step, <0: error
 	int refreshStep(int state, Action &action);
-	int perform(Action &action);
+	int perform(Action &action, Remote *remote);
 	//int addDir(const char *dir) { uint32_t did = 0;  return addDir(dir, strlen(dir), did); }
-	int addFile(const char *file) { uint32_t fid = 0;  return addFile(file, strlen(file), fid); }
+	int addFile(const char *file, Remote *remote) { uint32_t fid = 0;  return addFile(file, strlen(file), fid, remote); }
 
-	int addDir(const char *dir, size_t dlen, uint32_t &did);
-	int delDir(const char *dir, size_t dlen);
-	int delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen);
-	int addFile(const char *file, size_t flen, uint32_t &fid);
-	int delFile(const char *filename, size_t flen);
-	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen);
+	int addDir(const char *dir, size_t dlen, uint32_t &did, Remote *remote);
+	int delDir(const char *dir, size_t dlen, Remote *remote);
+	int delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, Remote *remote);
+	int addFile(const char *file, size_t flen, uint32_t &fid, Remote *remote);
+	int delFile(const char *filename, size_t flen, Remote *remote);
+	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen, Remote *remote);
 	int eraseName(uint32_t rid);
 
 	// look for the specific name under pid
@@ -61,15 +62,37 @@ public:
 	uint32_t findRecord(const char *name, size_t namelen, FindOption option, FindResult &restype, uint32_t &pid);
 
 private:
-	std::string root;
+	// configs
+	std::string _name;	// name of this root. all files will be backed-up in <remote>/name dir
+	std::string _localroot;	// the dir in local storage to backup
 	//abuf<char> ncroot;
-	std::string recpath;
+	std::string recpath;	// the dir used as local registry
 	size_t _histnum = 0;
+
+	// local registry data
+	// _records format:
+	// _records[0] is reserved for the head of recycled items.
+	//     _records[0].next() -> next recycled item, until next() == 0
+	// each non-recycled record:
+	//     rec.name() -> pos of name in _rname
+	//     rec.next() -> next sibling item inside parent dir
+	//     rec.time(): last modified time, 32 bit
+	// _records[1] is the root dir item
+	// dir record:
+	//     rec.sub() -> first child inside this dir.
+	//         rec.sub() == 0 if the dir is empty (empty <=> doesnt even have deleted child)
+	//     order of items inside the same dir: FILE -> DIRDEL -> DIR
+	//         dirs do not have `hist` pointer (but `parent`), so DIRDELs are separated from DIR
+	//     if a dir is not empty but has sub DIR item, a "loopback" DIR item must be created to point to parent
+	//         who must be the single DIR and last item inside parent, and whose name() must be 0
+	//     the FILE/DIRDEL/DIR items are in case-insensitive C order
+	// file record:
+	//     size(): file size, lower 3-bytes only
 	std::vector<RecordItem> _records;
 	std::vector<char> _rname;
 	std::vector<HistItem> _hists;
 
-	Remote *_remote = NULL;
+	//Remote *_remote = NULL;
 
 	struct RefreshIter
 	{

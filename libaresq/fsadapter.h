@@ -9,9 +9,11 @@
 #ifdef _WIN32
 typedef utf16_t NCHART;
 #define _NCT(x)      L ## x
+#define DIRSEP '\\'
 #else
 typedef char NCHART;
 #define _NCT(x)      x
+#define DIRSEP '/'
 #endif
 
 void Utf8toNchar(const char *utf8, abuf<NCHART> &ncs);

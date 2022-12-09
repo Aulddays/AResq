@@ -7,11 +7,11 @@
 #include "utfconv.h"
 #include "pe_log.h"
 
-#define DRY_RUN	// DO NOT write back changes
+//#define DRY_RUN	// DO NOT write back changes
 //#define FRESH_DEBUG	// DO NOT load previously saved data
 
-Root::Root(const char *recpath, const char *root):
-	recpath(recpath), root(root)
+Root::Root(const char *name, const char *root, const char *recpath) :
+	_name(name), _localroot(root), recpath(recpath)
 {
 
 }
@@ -56,16 +56,12 @@ Root::~Root()
 	fclose(fp);
 	AuVerify(memcmp(buf, _hists.data(), fsize) == 0);
 #endif
-	delete _remote;
 }
 
 int Root::load()
 {
 	if (CreateDir(recpath.c_str()) != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Create RECPATH failed\n"), -1);
-
-	// remote
-	_remote = new RemoteDummy();
 
 	FILE *fp = NULL;
 
@@ -292,7 +288,7 @@ int Root::refreshStep(int state, Action &action)
 			restate.clear();
 			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid refresh root\n"), -1);
 		}
-		std::vector<const char *> pathparts = {root.c_str()};
+		std::vector<const char *> pathparts = {_localroot.c_str()};
 		for (size_t i = 1; i < restate.size(); ++i)
 		{
 			RefreshIter &reiter = restate[i];
@@ -324,10 +320,10 @@ int Root::refreshStep(int state, Action &action)
 		{
 			// store name
 			reiter.name.scopyFrom(rec.name(_rname));
-			AuVerify(rec.isdir() && !rec.isdel() && reiter.rid == 1 || *rec.name(_rname));
+			AuVerify(rec.isdir() && !rec.isdel() && (reiter.rid == 1 || *rec.name(_rname)));
 			// build path
 			std::vector<const char *> pathparts;
-			pathparts.push_back(root.c_str());
+			pathparts.push_back(_localroot.c_str());
 			for (size_t i = 1; i < restate.size(); ++i)
 				pathparts.push_back(restate[i].name);
 			buildPath(pathparts.data(), pathparts.size(), reiter.path);
@@ -336,7 +332,7 @@ int Root::refreshStep(int state, Action &action)
 			{
 				// list dir failed. maybe it has just been deleted
 				if (restate.size() <= 1)
-					PELOG_LOG((PLV_ERROR, "Root dir listing failed: %s\n", root.c_str()));
+					PELOG_LOG((PLV_ERROR, "Root dir listing failed: %s\n", _localroot.c_str()));
 				else
 				{
 					PELOG_LOG((PLV_WARNING, "Dir missing, REDO. %s\n", reiter.path.buf()));
@@ -367,16 +363,18 @@ int Root::refreshStep(int state, Action &action)
 					break;
 				}
 			}
+			size_t fidx = 0;	// current idx in physical files
 			// for each rec file
-			size_t fidx = 0;
 			for (; reiter.prog != 0 && !_records[reiter.prog].isdir(); reiter.prog = _records[reiter.prog].next())
 			{
 				RecordItem &fitem = _records[reiter.prog];
 				if (fitem.isdel())
 					continue;
+				// look for the matched item in physical files for the rec file
 				while (fidx < reiter.files.size() && pathCmpMt(reiter.files[fidx].name, fitem.name(_rname)) < 0)
 					++fidx;
-				if (pathCmpMt(reiter.files[fidx].name, fitem.name(_rname)) != 0)
+				// if not found
+				if (fidx >= reiter.files.size() || pathCmpMt(reiter.files[fidx].name, fitem.name(_rname)) != 0)
 				{
 					PELOG_LOG((PLV_DEBUG, "DEL file detected %s: %s\n", reiter.path.buf(), fitem.name(_rname)));
 					reiter.prog = fitem.next();	// move forward before return, since prog is likely to be deleted
@@ -387,7 +385,7 @@ int Root::refreshStep(int state, Action &action)
 						reiter.prog = 0;
 					}
 					action.type = Action::DELFILE;
-					buildPath(pathAbs2Rel(reiter.path.buf(), root.c_str()), fitem.name(_rname), action.name);
+					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), fitem.name(_rname), action.name);
 					return 1;
 				}
 			}
@@ -421,16 +419,18 @@ int Root::refreshStep(int state, Action &action)
 				reiter.prog = 0;
 				break;
 			}
+			size_t didx = 0;	// current idx in physical files
 			// for each rec dir
-			size_t didx = 0;
 			for (; reiter.prog != 0 && _records[reiter.prog].isdir() &&
 				!_records[reiter.prog].isdel() && *_records[reiter.prog].name(_rname);
 				reiter.prog = _records[reiter.prog].next())
 			{
 				RecordItem &ditem = _records[reiter.prog];
+				// look for the matched item in physical dirs for the rec dir
 				while (didx < reiter.dirs.size() && pathCmpMt(reiter.dirs[didx].name, ditem.name(_rname)) < 0)
 					++didx;
-				if (pathCmpMt(reiter.dirs[didx].name, ditem.name(_rname)) != 0)
+				// if not found
+				if (didx >= reiter.dirs.size() || pathCmpMt(reiter.dirs[didx].name, ditem.name(_rname)) != 0)
 				{
 					PELOG_LOG((PLV_DEBUG, "DEL dir detected %s: %s\n", reiter.path.buf(), ditem.name(_rname)));
 					reiter.prog = ditem.next();	// move forward before return, since prog is likely to be deleted
@@ -441,7 +441,7 @@ int Root::refreshStep(int state, Action &action)
 						reiter.prog = 0;
 					}
 					action.type = Action::DELDIR;
-					buildPath(pathAbs2Rel(reiter.path.buf(), root.c_str()), ditem.name(_rname), action.name);
+					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), ditem.name(_rname), action.name);
 					return 1;
 				}
 			}
@@ -468,7 +468,7 @@ int Root::refreshStep(int state, Action &action)
 				{
 					PELOG_LOG((PLV_DEBUG, "ADD file detected %s: %s\n", reiter.path.buf(), reiter.files[reiter.prog].name));
 					action.type = Action::ADDFILE;
-					buildPath(pathAbs2Rel(reiter.path.buf(), root.c_str()), reiter.files[reiter.prog].name, action.name);
+					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), reiter.files[reiter.prog].name, action.name);
 					reiter.prog++;	// move forward before return
 					return 1;
 				}
@@ -477,7 +477,7 @@ int Root::refreshStep(int state, Action &action)
 				{
 					PELOG_LOG((PLV_DEBUG, "MOD file detected %s: %s\n", reiter.path.buf(), reiter.files[reiter.prog].name));
 					action.type = Action::ADDFILE;
-					buildPath(pathAbs2Rel(reiter.path.buf(), root.c_str()), reiter.files[reiter.prog].name, action.name);
+					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), reiter.files[reiter.prog].name, action.name);
 					reiter.prog++;	// move forward before return
 					return 1;
 				}
@@ -501,7 +501,7 @@ int Root::refreshStep(int state, Action &action)
 				{
 					PELOG_LOG((PLV_DEBUG, "ADD dir detected %s: %s\n", reiter.path.buf(), reiter.dirs[reiter.prog].name));
 					action.type = Action::ADDDIR;
-					buildPath(pathAbs2Rel(reiter.path.buf(), root.c_str()), reiter.dirs[reiter.prog].name, action.name);
+					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), reiter.dirs[reiter.prog].name, action.name);
 					reiter.prog++;	// move forward before return
 					return 1;
 				}
@@ -567,19 +567,19 @@ int Root::refreshStep(int state, Action &action)
 }
 
 // did: output the target directory record id
-int Root::addDir(const char *dir, size_t dlen, uint32_t &did)
+int Root::addDir(const char *dir, size_t dlen, uint32_t &did, Remote *remote)
 {
 	int res = OK;
 	// process parents
 	size_t baselen = splitPath(dir, dlen);
 	uint32_t pid = 1;
-	if (baselen > 0 && (res = addDir(dir, baselen, pid)) != OK)	// not top level dir, create parents
+	if (baselen > 0 && (res = addDir(dir, baselen, pid, remote)) != OK)	// not top level dir, create parents
 		return res;
-	const char *name = baselen == 0 ? dir : dir + baselen + 1;
-	size_t nlen = dlen - (name - dir);
+	const char *dirname = baselen == 0 ? dir : dir + baselen + 1;
+	size_t nlen = dlen - (dirname - dir);
 	// check local
 	FindResult dtype = FR_MATCH;
-	did = findRecord(pid, name, nlen, FO_DIR, dtype);
+	did = findRecord(pid, dirname, nlen, FO_DIR, dtype);
 	if (dtype == FR_MATCH && did != 0 && !_records[did].isdir())	// local is a file, error
 		PELOG_ERROR_RETURN((PLV_ERROR, "Create dir failed. file exists. %.*s\n", dlen, dir), CONFLICT);
 	if (dtype == FR_MATCH && did != 0 && _records[did].isdir())	// local already exists
@@ -587,7 +587,7 @@ int Root::addDir(const char *dir, size_t dlen, uint32_t &did)
 	AuVerify(dtype == FR_PRE && did != 0);
 	uint32_t preid = did;
 	// local not found. add remote first
-	if ((res = _remote->addDir(dir, dlen)) != Remote::OK)
+	if ((res = remote->addDir(_name.c_str(), std::string(dir, dlen).c_str())) != Remote::OK)
 	{
 		if (res != Remote::DISCONNECTED)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Create dir failed. remote error %d. %.*s\n", res, dlen, dir), REMOTEERR);
@@ -617,10 +617,10 @@ int Root::addDir(const char *dir, size_t dlen, uint32_t &did)
 	if (did == 0)	// if no loopback record found, allocate a new record
 		did = allocRec(cids);
 	RecordItem &ditem = _records[did];
-	ditem.name(allocRName(name, nlen));
+	ditem.name(allocRName(dirname, nlen));
 	ditem.isdir(true);
 	ditem.parent(pid);
-	ditem.time(getDirTime(root.c_str(), dir, dlen));
+	ditem.time(getDirTime(_localroot.c_str(), dir, dlen));
 	// insert the new record
 	cids.push_back(preid);
 	preptr.set(preid, preid == pid ? RPSUB : RPNEXT);
@@ -628,33 +628,33 @@ int Root::addDir(const char *dir, size_t dlen, uint32_t &did)
 	preptr(did, this);
 	AuAssert(verifydir(pid));
 	writeRec(cids);
-	PELOG_LOG((PLV_INFO, "DIR ADDed(%u) %s : %.*s\n", did, root.c_str(), dlen, dir));
+	PELOG_LOG((PLV_INFO, "DIR ADDed(%u) %s : %.*s\n", did, _localroot.c_str(), dlen, dir));
 	return OK;
 }
 
 // fid: output the target file record id
-int Root::addFile(const char *file, size_t flen, uint32_t &fid)
+int Root::addFile(const char *file, size_t flen, uint32_t &fid, Remote *remote)
 {
 	// TODO: manage history versions
 	int res = OK;
 	// process parents
 	size_t baselen = splitPath(file, flen);
 	uint32_t pid = 1;
-	if (baselen > 0 && (res = addDir(file, baselen, pid)) != OK)	// not in top level dir, create parents
+	if (baselen > 0 && (res = addDir(file, baselen, pid, remote)) != OK)	// not in top level dir, create parents
 		return res;
-	const char *name = baselen == 0 ? file : file + baselen + 1;
-	size_t nlen = flen - (name - file);
+	const char *filename = baselen == 0 ? file : file + baselen + 1;
+	size_t nlen = flen - (filename - file);
 	// get attr
 	uint32_t ftime = 0;
 	uint64_t fsize = 0;
-	if (getFileAttr(root.c_str(), file, flen, ftime, fsize) != 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "Get file attr failed. %s : %.*s\n", root.c_str(), flen, file), NOTFOUND);
-	PELOG_LOG((PLV_TRACE, "FILE size %llu time %u. %s : %.*s\n", fsize, ftime, root.c_str(), flen, file));
+	if (getFileAttr(_localroot.c_str(), file, flen, ftime, fsize) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Get file attr failed. %s : %.*s\n", _localroot.c_str(), flen, file), NOTFOUND);
+	PELOG_LOG((PLV_TRACE, "FILE size %llu time %u. %s : %.*s\n", fsize, ftime, _localroot.c_str(), flen, file));
 	// check local
 	FindResult dtype = FR_MATCH;
-	fid = findRecord(pid, name, nlen, FO_FILE, dtype);
+	fid = findRecord(pid, filename, nlen, FO_FILE, dtype);
 	if (dtype == FR_MATCH && fid != 0 && _records[fid].isdir())	// local is a dir, error
-		PELOG_ERROR_RETURN((PLV_ERROR, "Create file failed. dir exists. %.*s\n", flen, file), CONFLICT);
+		PELOG_ERROR_RETURN((PLV_ERROR, "addFile failed. dir exists. %.*s\n", flen, file), CONFLICT);
 	if (dtype == FR_MATCH && fid != 0 && !_records[fid].isdir() &&
 			_records[fid].time() == ftime && !_records[fid].sizeChanged(fsize))	// local already exists & no change
 		return OK;
@@ -663,10 +663,10 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid)
 	uint32_t preid = dtype == FR_PRE ? fid : 0;
 	fid = dtype == FR_MATCH ? fid : 0;
 	// add remote first
-	if ((res = _remote->addFile(file, flen)) != Remote::OK)
+	if ((res = remote->addFile(_localroot.c_str(), _name.c_str(), std::string(file, flen).c_str())) != Remote::OK)
 	{
 		if (res != Remote::DISCONNECTED)
-			PELOG_ERROR_RETURN((PLV_ERROR, "Create file failed. remote error %d. %.*s\n", res, flen, file), REMOTEERR);
+			PELOG_ERROR_RETURN((PLV_ERROR, "addFile failed. remote error %d. %.*s\n", res, flen, file), REMOTEERR);
 		else
 			PELOG_ERROR_RETURN((PLV_TRACE, "Remote disconnected.\n"), DISCONNECTED);
 	}
@@ -687,7 +687,7 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid)
 		AuVerify(preid != 0);
 		preptr.set(preid, preid == pid ? RPSUB : RPNEXT);
 		fid = allocRec(cids);
-		_records[fid].name(allocRName(name, nlen));
+		_records[fid].name(allocRName(filename, nlen));
 		_records[fid].next(preptr(this));
 		preptr(fid, this);
 		cids.push_back(preid);
@@ -708,26 +708,26 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid)
 		_records[lbid].parent(pid);
 		cids.push_back(preptr._id);
 		preptr(lbid, this);
-		PELOG_LOG((PLV_DEBUG, "Loopback record ADDed(%u)\n", lbid, root.c_str()));
+		PELOG_LOG((PLV_DEBUG, "Loopback record ADDed(%u)\n", lbid, _localroot.c_str()));
 	}
 	AuAssert(verifydir(pid));
 	writeRec(cids);
-	PELOG_LOG((PLV_INFO, "FILE %s(%u) %s : %.*s\n", isnew ? "ADDed" : "MODed", fid, root.c_str(), flen, file));
+	PELOG_LOG((PLV_INFO, "FILE %s(%u) %s : %.*s\n", isnew ? "ADDed" : "MODed", fid, _localroot.c_str(), flen, file));
 	return OK;
 }
 
-int Root::delDir(const char *dir, size_t dlen)
+int Root::delDir(const char *dir, size_t dlen, Remote *remote)
 {
 	// find parent id
 	FindResult foundtype = FR_MATCH;
 	uint32_t pid = 0;
 	uint32_t did = findRecord(dir, dlen, FO_DIR, foundtype, pid);
 	if (did == 0 || pid == 0 || foundtype != FR_MATCH || !_records[did].isdir() || _records[did].isdel())
-		PELOG_ERROR_RETURN((PLV_ERROR, "recdir not found %s : %.*s\n", root.c_str(), dlen, dir), NOTFOUND);
-	return delDir(did, pid, dir, dlen);
+		PELOG_ERROR_RETURN((PLV_ERROR, "recdir not found %s : %.*s\n", _localroot.c_str(), dlen, dir), NOTFOUND);
+	return delDir(did, pid, dir, dlen, remote);
 }
 
-int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen)
+int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, Remote *remote)
 {
 	// TODO: hist
 	// TODO: verify physical dir existance
@@ -747,12 +747,12 @@ int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen)
 				buildPath(dir, dlen, getName(sid), strlen(getName(sid)), subname);
 			if (!sub.isdir() && !sub.isdel())	// a regular file
 			{
-				if ((res = delFile(sid, rid, subname, strlen(subname))) != OK)
+				if ((res = delFile(sid, rid, subname, strlen(subname), remote)) != OK)
 					return res;
 			}
 			else if (sub.isdir() && !sub.isdel() && *getName(sid))	// a regular dir
 			{
-				if ((res = delDir(sid, rid, subname, strlen(subname))) != OK)
+				if ((res = delDir(sid, rid, subname, strlen(subname), remote)) != OK)
 					return res;
 			}
 			else if (sub.isdir() && !sub.isdel())	// a loop back record. this should no happen
@@ -765,7 +765,7 @@ int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen)
 		}	// while (_records[rid].sub())
 		// must be an empty dir if reaches here
 		// delete remote
-		if ((res = _remote->delDir(dir, dlen)) != Remote::OK)
+		if ((res = remote->delDir(_name.c_str(), std::string(dir, dlen).c_str())) != Remote::OK)
 		{
 			if (res != Remote::DISCONNECTED)
 				PELOG_ERROR_RETURN((PLV_ERROR, "Del file failed. remote error %d. %.*s\n", res, dlen, dir), REMOTEERR);
@@ -799,11 +799,11 @@ int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen)
 	}
 	AuAssert(verifydir(pid));
 	writeRec(cids);
-	PELOG_LOG((PLV_INFO, "DIR DELed(%u) %s : %.*s\n", rid, root.c_str(), dlen, dir));
+	PELOG_LOG((PLV_INFO, "DIR DELed(%u) %s : %.*s\n", rid, _localroot.c_str(), dlen, dir));
 	return OK;
 }
 
-int Root::delFile(const char *filename, size_t flen)
+int Root::delFile(const char *filename, size_t flen, Remote *remote)
 {
 	// TODO: hist
 	// TODO: verify physical file existance
@@ -812,11 +812,11 @@ int Root::delFile(const char *filename, size_t flen)
 	uint32_t pid = 0;
 	uint32_t fid = findRecord(filename, flen, FO_FILE, foundtype, pid);
 	if (fid == 0 || pid == 0 || foundtype != FR_MATCH || _records[fid].isdir() || _records[fid].isdel())
-		PELOG_ERROR_RETURN((PLV_ERROR, "recfile not found %s : %.*s\n", root.c_str(), flen, filename), NOTFOUND);
-	return delFile(fid, pid, filename, flen);
+		PELOG_ERROR_RETURN((PLV_ERROR, "recfile not found %s : %.*s\n", _localroot.c_str(), flen, filename), NOTFOUND);
+	return delFile(fid, pid, filename, flen, remote);
 }
 
-int Root::delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen)
+int Root::delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen, Remote *remote)
 {
 	AuVerify(!_records[rid].isdel());	// not implemented yet
 	AuVerify(!_records[rid].isdir() && *filename && *getName(rid));
@@ -825,7 +825,7 @@ int Root::delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen)
 	if (_histnum == 0)
 	{
 		// del remote
-		if ((res = _remote->delFile(filename, flen)) != Remote::OK)
+		if ((res = remote->delFile(_name.c_str(), std::string(filename, flen).c_str())) != Remote::OK)
 		{
 			if (res != Remote::DISCONNECTED)
 				PELOG_ERROR_RETURN((PLV_ERROR, "Del file failed. remote error %d. %.*s\n", res, flen, filename), REMOTEERR);
@@ -858,7 +858,7 @@ int Root::delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen)
 		AuVerify(false);		// not implemented
 	AuAssert(verifydir(pid));
 	writeRec(cids);
-	PELOG_LOG((PLV_INFO, "FILE DELed(%u) %s : %.*s\n", rid, root.c_str(), flen, filename));
+	PELOG_LOG((PLV_INFO, "FILE DELed(%u) %s : %.*s\n", rid, _localroot.c_str(), flen, filename));
 	return OK;
 }
 
@@ -1028,20 +1028,20 @@ int Root::writeRec(std::vector<uint32_t> &cids)
 	return 0;
 }
 
-int Root::perform(Action &action)
+int Root::perform(Action &action, Remote *remote)
 {
 	uint32_t rid = 0;
 	switch (action.type)
 	{
 	case Action::ADDDIR:
-		return addDir(action.name, strlen(action.name), rid);
+		return addDir(action.name, strlen(action.name), rid, remote);
 	case Action::ADDFILE:
 	case Action::MODFILE:
-		return addFile(action.name, strlen(action.name), rid);
+		return addFile(action.name, strlen(action.name), rid, remote);
 	case Action::DELDIR:
-		return delDir(action.name, strlen(action.name));
+		return delDir(action.name, strlen(action.name), remote);
 	case Action::DELFILE:
-		return delFile(action.name, strlen(action.name));
+		return delFile(action.name, strlen(action.name), remote);
 	}
 	PELOG_ERROR_RETURN((PLV_WARNING, "Unsupported action %d\n", action.type), NOTIMPLEMENTED);
 }

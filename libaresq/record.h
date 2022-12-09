@@ -69,7 +69,7 @@ public:
 	// uint24(_data + 14)
 	inline uint32_t size24() const { return p2l24(_data + 14); }
 	inline void size24(uint64_t size) { l2p24((uint32_t)size, _data + 14); }
-	inline bool sizeChanged(uint64_t size) { return (size & 0xffffff) == size24(); }
+	inline bool sizeChanged(uint64_t size) { return (size & 0xffffff) != size24(); }
 
 	// for dir item (parent/hist, sub)
 	// uint24(_data + 11): isdel() ? parent : hist
