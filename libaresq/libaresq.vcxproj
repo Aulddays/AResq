@@ -72,10 +72,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="ap_dirent.h" />
+    <ClInclude Include="Aresq.h" />
     <ClInclude Include="audbg.h" />
     <ClInclude Include="auto_buf.hpp" />
     <ClInclude Include="fsadapter.h" />
-    <ClInclude Include="IgnoreList.h" />
+    <ClInclude Include="AresqIgnore.h" />
     <ClInclude Include="libsmb2\msvc\poll.h" />
     <ClInclude Include="pe_log.h" />
     <ClInclude Include="record.h" />
@@ -109,8 +110,10 @@
     <ClInclude Include="utfconv.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Aresq.cpp" />
     <ClCompile Include="fsadapter.cpp" />
-    <ClCompile Include="IgnoreList.cpp" />
+    <ClCompile Include="AresqIgnore.cpp" />
+    <ClCompile Include="match.cpp" />
     <ClCompile Include="pe_log.cpp" />
     <ClCompile Include="Remote.cpp" />
     <ClCompile Include="RemoteSmb.cpp" />

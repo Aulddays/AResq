@@ -8,10 +8,29 @@
 #ifdef _WIN32
 #include <Windows.h>
 #include <tchar.h>
+#define DIRSEP '\\'
 
 void Utf8toNchar(const char *utf8, abuf<NCHART> &ncs)
 {
 	utf8to16((const utf8_t *)utf8, ncs);
+}
+
+inline void normDirSep(abuf<utf16_t> &path)
+{
+	for (size_t i = 0; i < path.size() && path[i]; ++i)
+	{
+		if (path[i] == '/')
+			path[i] = DIRSEP;
+	}
+}
+
+inline void normDirSep(abuf<utf8_t> &path)
+{
+	for (size_t i = 0; i < path.size() && path[i]; ++i)
+	{
+		if (path[i] == DIRSEP)
+			path[i] = '/';
+	}
 }
 
 int CreateDir(const char *dir)
@@ -19,6 +38,7 @@ int CreateDir(const char *dir)
 	// check existance
 	abuf<utf16_t> pathbuf;
 	utf8to16((const utf8_t *)dir, pathbuf);
+	normDirSep(pathbuf);
 	DWORD dwAttrib = GetFileAttributesW(pathbuf);
 	if (INVALID_FILE_ATTRIBUTES != dwAttrib && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
 		return -1;
@@ -38,6 +58,7 @@ int buildPath(const char *dir, const char *filename, abuf<utf16_t> &path)
 	if (*dir)
 		path[outl++] = DIRSEP;
 	utf8to16((const utf8_t *)filename, path, outl);
+	normDirSep(path);
 	return 0;
 }
 
@@ -51,6 +72,7 @@ int buildPath(const char *dir, const char *filename, size_t flen, abuf<utf16_t> 
 	if (*dir)
 		path[outl++] = DIRSEP;
 	utf8to16((const utf8_t *)filename, flen, path, outl);
+	normDirSep(path);
 	return 0;
 }
 
@@ -58,6 +80,7 @@ FILE *OpenFile(const char *filename, const wchar_t *mode)
 {
 	abuf<utf16_t> path;
 	utf8to16(filename, path);
+	normDirSep(path);
 	return _wfopen(path, mode);
 }
 
@@ -68,9 +91,9 @@ FILE *OpenFile(const char *dir, const char *filename, const wchar_t *mode)
 	return _wfopen(path, mode);
 }
 
-inline uint32_t filetime2Timet(FILETIME ft)
+inline uint64_t filetime2Timet(FILETIME ft)
 {
-	return (uint32_t)(((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) / 10000000 - 11644473600LL);
+	return ((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) / 10000000 - UINT64_C(11644473600);
 }
 
 int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem> &files)
@@ -87,6 +110,7 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 	dir[dirlen] = DIRSEP;
 	dir[dirlen + 1] = '*';
 	dir[dirlen + 2] = 0;
+	normDirSep(dir);
 
 	std::vector<FsItem> items;
 	WIN32_FIND_DATAW ffd;
@@ -106,7 +130,7 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 		utf16to8(ffd.cFileName, item.name);
 		item.size = ((uint64_t)ffd.nFileSizeHigh * (MAXDWORD + (uint64_t)1)) + ffd.nFileSizeLow;
 		item.isdir(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ? true : false);
-		item.time = filetime2Timet(item.isdir() ? ffd.ftCreationTime : ffd.ftLastWriteTime);
+		item.time = (uint32_t)filetime2Timet(item.isdir() ? ffd.ftCreationTime : ffd.ftLastWriteTime);
 	} while (FindNextFileW(hFind, &ffd));
 
 	// sort
@@ -138,7 +162,7 @@ int pathCmpMt(const char *l, size_t ll, const char *r)	// case insensitive match
 	return pathCmpDp(l, ll, r);
 }
 
-uint32_t getDirTime(const char *base, const char *dir, size_t dlen)
+uint64_t getDirTime(const char *base, const char *dir, size_t dlen)
 {
 	abuf<wchar_t> path;
 	buildPath(base, dir, dlen, path);
@@ -148,7 +172,7 @@ uint32_t getDirTime(const char *base, const char *dir, size_t dlen)
 	return 0;
 }
 
-int getFileAttr(const char *base, const char *filename, size_t fnlen, uint32_t &ftime, uint64_t &fsize)
+int getFileAttr(const char *base, const char *filename, size_t fnlen, uint64_t &ftime, uint64_t &fsize)
 {
 	ftime = fsize = 0;
 	abuf<wchar_t> path;
@@ -186,7 +210,7 @@ int buildPath(const char **dir, size_t size, abuf<char> &path)
 		for (const char *pi = dir[i]; *pi;)
 			*po++ = *pi++;
 		if (i != size - 1 && *dir[i])
-			*po++ = DIRSEP;
+			*po++ = '/';
 	}
 	*po = 0;
 	return 0;
@@ -201,7 +225,7 @@ int buildPath(const char *dir, size_t dirlen, const char *file, size_t filelen, 
 	{
 		for (size_t i = 0; i < dirlen; ++i)
 			*po++ = dir[i];
-		*po++ = DIRSEP;
+		*po++ = '/';
 	}
 	for (size_t i = 0; i < filelen; ++i)
 		*po++ = file[i];
@@ -261,7 +285,7 @@ int pathAbs2Rel(abufchar &path, const char *base)
 		if (*pp != *pb)	// path not starts with base
 			return -1;
 	}
-	AuVerify(base[lb] == 0 && path.size() > lb && path[lb] == DIRSEP);
+	AuVerify(base[lb] == 0 && path.size() > lb && path[lb] == '/');
 	for (char *pi = path + lb + 1, *po = path; true; ++pi, ++po)
 	{
 		*po = *pi;
@@ -284,7 +308,7 @@ const char *pathAbs2Rel(const char *path, const char *base)
 	}
 	if (!*path)
 		return path;
-	AuVerify(*base == 0 && *path == DIRSEP);
+	AuVerify(*base == 0 && *path == '/');
 	return path + 1;
 }
 
@@ -294,7 +318,7 @@ int pathRel2Abs(abufchar &path, const char *base)
 	size_t lb = strlen(base);
 	path.resize(lp + lb + 2);
 	memmove(path + lb + 1, path, lp + 1);
-	path[lb] = DIRSEP;
+	path[lb] = '/';
 	memcpy(path, base, lb);
 	return 0;
 }
@@ -304,10 +328,10 @@ size_t splitPath(const char *path, size_t plen)
 {
 	if (plen == 0)
 		return 0;
-	AuVerify(path[0] != DIRSEP && path[plen - 1] != DIRSEP);
+	AuVerify(path[0] != '/' && path[plen - 1] != '/');
 	for (--plen; plen > 0; --plen)
 	{
-		if (path[plen] == DIRSEP)
+		if (path[plen] == '/')
 			return plen;
 	}
 	return plen;

@@ -4,16 +4,15 @@
 #include <string>
 #include <stdint.h>
 #include <vector>
-#include "utfconv.h"
 
 #ifdef _WIN32
+#include "utfconv.h"
 typedef utf16_t NCHART;
 #define _NCT(x)      L ## x
-#define DIRSEP '\\'
+#define time64 _time64
 #else
 typedef char NCHART;
 #define _NCT(x)      x
-#define DIRSEP '/'
 #endif
 
 void Utf8toNchar(const char *utf8, abuf<NCHART> &ncs);
@@ -30,10 +29,21 @@ struct FsItem
 	inline void isdir(bool flag) { setflag(flag, 0); }
 };
 
+class FileHandle
+{
+	FILE *fp;
+public:
+	FileHandle(FILE *r = NULL) : fp(r){}
+	~FileHandle() { close(); }
+	void close() { if (fp) fclose(fp); fp = NULL; }
+	FILE *operator =(FILE *r) { close(); fp = r; return fp; }
+	operator FILE *() { return fp; }
+};
+
 int CreateDir(const char *dir);
 
-uint32_t getDirTime(const char *base, const char *dir, size_t dlen);
-int getFileAttr(const char *base, const char *filename, size_t fnlen, uint32_t &ftime, uint64_t &fsize);
+uint64_t getDirTime(const char *base, const char *dir, size_t dlen);
+int getFileAttr(const char *base, const char *filename, size_t fnlen, uint64_t &ftime, uint64_t &fsize);
 
 int buildPath(const char *dir, const char *filename, abuf<NCHART> &path);
 int buildPath(const char *dir, const char *filename, size_t flen, abuf<NCHART> &path);

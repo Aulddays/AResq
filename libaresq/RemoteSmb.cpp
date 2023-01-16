@@ -14,6 +14,7 @@
 #include <chrono>
 #include <process.h>
 
+#include "Aresq.h"
 #include "auto_buf.hpp"
 #include "fsadapter.h"
 #include "libsmb2/smb2.h"
@@ -56,7 +57,7 @@ public:
 		clear();
 		smb = smb2_init_context();
 		if (!smb)
-			PELOG_ERROR_RETURN((PLV_ERROR, "RemoteSmb smb init failed\n"), RemoteSmb::EINTERNAL);
+			PELOG_ERROR_RETURN((PLV_ERROR, "RemoteSmb smb init failed\n"), Aresq::EINTERNAL);
 		this->server = server;
 		this->share = share;
 		this->user = user;
@@ -66,22 +67,22 @@ public:
 		smb2_set_password(smb, this->password.c_str());
 		smb2_set_security_mode(smb, SMB2_NEGOTIATE_SIGNING_ENABLED);
 		smb2_set_version(smb, SMB2_VERSION_ANY2);
-		return RemoteSmb::OK;
+		return Aresq::OK;
 	}
 	int connect()
 	{
 		if (connected)
-			PELOG_ERROR_RETURN((PLV_WARNING, "Already connected smb\n"), RemoteSmb::OK);
+			PELOG_ERROR_RETURN((PLV_WARNING, "Already connected smb\n"), Aresq::OK);
 		int res = smb2_connect_share(smb, server.c_str(), share.c_str(), NULL);
 		if (res == -EIO)
-			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb failed network %d\n", res), RemoteSmb::DISCONNECTED);
+			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb failed network %d\n", res), Aresq::DISCONNECTED);
 		else if (res == -ECONNREFUSED || res == -ENOENT)
-			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb credential error %d\n", res), RemoteSmb::EPARAM);
+			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb credential error %d\n", res), Aresq::EPARAM);
 		else if (res < 0)
-			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb error %d\n", res), RemoteSmb::EPARAM);
+			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb error %d\n", res), Aresq::EPARAM);
 		connected = true;
 		chunksize = std::min(1024 * 1024u, smb2_get_max_write_size(smb));
-		return RemoteSmb::OK;
+		return Aresq::OK;
 	}
 	void disconnect()
 	{
@@ -135,9 +136,6 @@ std::string buildSmbPath(const char *root, const char *rbase, const char *path)
 		ret = std::string(rbase) + '/' + ret;
 	if (root && *root)
 		ret = std::string(root) + '/' + ret;
-	for (size_t i = 0; i < ret.length(); ++i)
-		if (ret[i] == DIRSEP)
-			ret[i] = '/';
 	return ret;
 }
 
@@ -167,21 +165,21 @@ Remote *RemoteSmb::fromConfig(const config_setting_t *config)
 	if (CONFIG_TRUE != config_setting_lookup_string(config, "path", &path))
 		PELOG_ERROR_RETURN((PLV_ERROR, "RemoteSmb 'path' config not found\n"), NULL);
 	std::unique_ptr<RemoteSmb> ret(new RemoteSmb);
-	if (ret->init(server, share, user, password, path) != OK)
+	if (ret->init(server, share, user, password, path) != Aresq::OK)
 		return NULL;
 	return ret.release();
 }
 
 int RemoteSmb::init(const char *server, const char *share, const char *user, const char *password, const char *path)
 {
-	int res = OK;
-	if ((res = d->smb.init(server, share, user, password, path)) != OK)
+	int res = Aresq::OK;
+	if ((res = d->smb.init(server, share, user, password, path)) != Aresq::OK)
 		return res;
 
-	if ((res = d->smb.connect()) != OK)
+	if ((res = d->smb.connect()) != Aresq::OK)
 		return res;
 
-	return OK;
+	return Aresq::OK;
 }
 
 class SmbFile
@@ -194,16 +192,6 @@ public:
 	void close() { if (fp) smb2_close(smb, fp); fp = NULL; }
 	smb2fh *operator =(smb2fh *r) { close(); fp = r; return fp; }
 	operator smb2fh *() { return fp; }
-};
-
-class FileHandle
-{
-	FILE *fp;
-public:
-	FileHandle(FILE *r = NULL) : fp(r){}
-	void close(){ if (fp) fclose(fp); fp = NULL; }
-	FILE *operator =(FILE *r) { close(); fp = r; return fp; }
-	operator FILE *() { return fp; }
 };
 
 struct SmbPutInfo
@@ -269,14 +257,14 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 
 	int res = 0;
 	if (!(info.lfp = OpenFile(lfile, _NCT("rb"))))
-		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot read smb file %s\n", lfile), RemoteSmb::EPARAM);
+		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot read smb file %s\n", lfile), Aresq::EPARAM);
 	info.rfp.setSmb(info.smb);
 	if (!(info.rfp = smb2_open(info.smb, rfile, O_WRONLY | O_CREAT)))
 	{
 		// create file failed. try some house keeping
 		const char *dirsep = strrchr(rfile, '/');
 		if (!dirsep || addDir(std::string(rfile, dirsep)) < 0 || !(info.rfp = smb2_open(info.smb, rfile, O_WRONLY | O_CREAT)))
-			PELOG_ERROR_RETURN((PLV_ERROR, "Cannot write smb remote file %s : %s \n", lfile, rfile), RemoteSmb::EPARAM);
+			PELOG_ERROR_RETURN((PLV_ERROR, "Cannot write smb remote file %s : %s \n", lfile, rfile), Aresq::EPARAM);
 	}
 
 	uint32_t maxchunksize = smb2_get_max_write_size(info.smb);
@@ -291,7 +279,7 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 		info.status = 1;
 	else if ((res = smb2_pwrite_async(d->smb, info.rfp, (const uint8_t *)info.buf.buf(), info.chunksize,
 			info.writesize, (smb2_command_cb)onSmbPutChunk, &info)) < 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 1 %d\n", res), RemoteSmb::DISCONNECTED);
+		PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 1 %d\n", res), Aresq::DISCONNECTED);
 
 	while (info.status == 0)
 	{
@@ -299,21 +287,21 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 		pfd.fd = smb2_get_fd(info.smb);
 		pfd.events = smb2_which_events(info.smb);
 		if ((res = poll(&pfd, 1, 1000)) < 0)
-			PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 2 %d\n", res), RemoteSmb::DISCONNECTED);
+			PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 2 %d\n", res), Aresq::DISCONNECTED);
 		if (pfd.revents == 0)
 			continue;
 		if ((res = smb2_service(info.smb, pfd.revents)) < 0)
-			PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 3 %d: %s\n", res, smb2_get_error(info.smb)), RemoteSmb::DISCONNECTED);
+			PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 3 %d: %s\n", res, smb2_get_error(info.smb)), Aresq::DISCONNECTED);
 	}
 
 	info.rfp.close();
 	// always truncate, even if no extra data were written, in case of larger version of this file already exists
 	if (info.status > 0 && (res = smb2_truncate(info.smb, rfile, info.realsize)) < 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 7 %d: %s\n", res, smb2_get_error(info.smb)), RemoteSmb::DISCONNECTED);
+		PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 7 %d: %s\n", res, smb2_get_error(info.smb)), Aresq::DISCONNECTED);
 
 	if (info.status > 0)
-		PELOG_ERROR_RETURN((PLV_VERBOSE, "PUTDONE smb %"PRIu64" %s -> %s\n", info.realsize, lfile, rfile), Remote::OK);
-	return Remote::DISCONNECTED;
+		PELOG_ERROR_RETURN((PLV_VERBOSE, "PUTDONE smb %"PRIu64" %s -> %s\n", info.realsize, lfile, rfile), Aresq::OK);
+	return Aresq::DISCONNECTED;
 }
 
 int RemoteSmb::getType(const char *fullpath)
@@ -345,16 +333,16 @@ int RemoteSmb::addDir(const char *rbase, const char *path)
 int RemoteSmb::addDir(const std::string &fullpath)
 {
 	if (!d->smb.isconnected())
-		PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb remote disconnected: %s/%s\n", fullpath.c_str()), DISCONNECTED);
+		PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb remote disconnected: %s/%s\n", fullpath.c_str()), Aresq::DISCONNECTED);
 	PELOG_LOG((PLV_DEBUG, "to ADDDIR smb %s\n", fullpath.c_str()));
 	int res = smb2_mkdir(d->smb, fullpath.c_str());
 	if (res == -EEXIST)
 	{
 		res = getType(fullpath.c_str());
 		if (res < 0)
-			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb failed %d: %s\n", res, fullpath.c_str()), EPARAM);
+			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb failed %d: %s\n", res, fullpath.c_str()), Aresq::EPARAM);
 		if (res == FT_DIR)
-			PELOG_ERROR_RETURN((PLV_VERBOSE, "Already exists smb: %s\n", fullpath.c_str()), OK);
+			PELOG_ERROR_RETURN((PLV_VERBOSE, "Already exists smb: %s\n", fullpath.c_str()), Aresq::OK);
 		PELOG_LOG((PLV_WARNING, "smb DIR name conflict. deleting the existing file. %s\n", fullpath.c_str()));
 		if ((res = smb2_unlink(d->smb, fullpath.c_str())) == 0)
 			res = smb2_mkdir(d->smb, fullpath.c_str());
@@ -364,21 +352,21 @@ int RemoteSmb::addDir(const std::string &fullpath)
 		PELOG_LOG((PLV_VERBOSE, "Creating smb parent dir: %s\n", fullpath.c_str()));
 		size_t sep = fullpath.rfind('/');
 		if (sep == fullpath.npos)
-			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb create parent failed: %s\n", fullpath.c_str()), EPARAM);
+			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb create parent failed: %s\n", fullpath.c_str()), Aresq::EPARAM);
 		size_t bsep = d->smb.path.empty() ? 0 : d->smb.path.length() + 1;
-		if ((res = addDir(fullpath.substr(0, sep))) != OK)
-			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb create parent failed: %s\n", fullpath.c_str()), EPARAM);
+		if ((res = addDir(fullpath.substr(0, sep))) != Aresq::OK)
+			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb create parent failed: %s\n", fullpath.c_str()), Aresq::EPARAM);
 		res = smb2_mkdir(d->smb, fullpath.c_str());
 	}
 	if (res != 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb failed (%d: %s): %s\n", res, nterror_to_str(res), fullpath.c_str()), EPARAM);
+		PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb failed (%d: %s): %s\n", res, nterror_to_str(res), fullpath.c_str()), Aresq::EPARAM);
 	PELOG_LOG((PLV_VERBOSE, "DIR smb added: %s\n", fullpath.c_str()));
-	return OK;
+	return Aresq::OK;
 }
 
 int RemoteSmb::addFile(const char *lbase, const char *rbase, const char *path)
 {
-	std::string lpath = std::string(lbase) + DIRSEP + path;
+	std::string lpath = std::string(lbase) + '/' + path;
 	std::string rpath = buildSmbPath(d->smb.path.c_str(), rbase, path);
 	return addFile(lpath, rpath);
 }
@@ -386,8 +374,8 @@ int RemoteSmb::addFile(const char *lbase, const char *rbase, const char *path)
 int RemoteSmb::addFile(const std::string &lfullpath, const std::string &rfullpath)
 {
 	if (!d->smb.isconnected())
-		PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb remote disconnected: %s\n", lfullpath.c_str()), DISCONNECTED);
-	int res = OK;
+		PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb remote disconnected: %s\n", lfullpath.c_str()), Aresq::DISCONNECTED);
+	int res = Aresq::OK;
 
 	// put file to tmp dir
 	char tmpbuf[32];
@@ -400,13 +388,13 @@ int RemoteSmb::addFile(const std::string &lfullpath, const std::string &rfullpat
 	}
 	std::string tmpfn = buildSmbPath(d->smb.path.c_str(), AR_TMPDIR, tmpbuf);
 	res = smbPutFile(lfullpath.c_str(), tmpfn.c_str());
-	if (res != OK)
+	if (res != Aresq::OK)
 		PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb failed 1:%d %s\n", res, lfullpath.c_str()), res);
 
 	// move tmp file into dst file
 	res = smb2_rename(d->smb, tmpfn.c_str(), rfullpath.c_str());
 	if (res == 0)
-		PELOG_ERROR_RETURN((PLV_VERBOSE, "ADDFILE smb done 1\n"), OK);
+		PELOG_ERROR_RETURN((PLV_VERBOSE, "ADDFILE smb done 1\n"), Aresq::OK);
 
 	// move failed, try some house keeping
 	// delete dst file
@@ -416,21 +404,21 @@ int RemoteSmb::addFile(const std::string &lfullpath, const std::string &rfullpat
 	if (pathsep != rfullpath.npos)
 	{
 		res = addDir(rfullpath.substr(0, pathsep));
-		if (res != OK)
+		if (res != Aresq::OK)
 			PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb parent failed %d %s\n", res, rfullpath.c_str()), res);
 	}
 
 	// try move again
 	res = smb2_rename(d->smb, tmpfn.c_str(), rfullpath.c_str());
 	if (res != 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb failed 2:%d %s\n", res, lfullpath.c_str()), EPARAM);
-	PELOG_ERROR_RETURN((PLV_VERBOSE, "ADDFILE smb done 2 %s\n", rfullpath.c_str()), OK);
+		PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb failed 2:%d %s\n", res, lfullpath.c_str()), Aresq::EPARAM);
+	PELOG_ERROR_RETURN((PLV_VERBOSE, "ADDFILE smb done 2 %s\n", rfullpath.c_str()), Aresq::OK);
 }
 
 int RemoteSmb::delDir(const char *rbase, const char *path)
 {
 	if (!path || !*path)
-		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR invalid dir name\n"), EPARAM);
+		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR invalid dir name\n"), Aresq::EPARAM);
 	std::string tpath = buildSmbPath(d->smb.path.c_str(), rbase, path);
 	return delDir(tpath);
 }
@@ -438,17 +426,17 @@ int RemoteSmb::delDir(const char *rbase, const char *path)
 int RemoteSmb::delDir(const std::string &fullpath)
 {
 	if (!d->smb.isconnected())
-		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR remote disconnected: %s\n", fullpath.c_str()), DISCONNECTED);
+		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR remote disconnected: %s\n", fullpath.c_str()), Aresq::DISCONNECTED);
 
 	// del contents
-	int res = OK;
+	int res = Aresq::OK;
 	bool empty = false;
 	SmbDir dir(d->smb);
 	for (int retry = 0; retry < 3; ++retry)
 	{
 		dir = smb2_opendir(d->smb, fullpath.c_str());
 		if (!dir)
-			PELOG_ERROR_RETURN((PLV_WARNING, "smb remote dir not found\n"), OK);
+			PELOG_ERROR_RETURN((PLV_WARNING, "smb remote dir not found\n"), Aresq::OK);
 		struct smb2dirent *ent = NULL;
 		std::vector<std::pair<std::string, bool>> dcont;
 		while ((ent = smb2_readdir(d->smb, dir)))
@@ -466,25 +454,25 @@ int RemoteSmb::delDir(const std::string &fullpath)
 		for (const std::pair<std::string, bool> &item : dcont)
 		{
 			res = item.second ? delDir(fullpath + item.first) : delFile(fullpath + item.first);
-			if (res != OK)
+			if (res != Aresq::OK)
 				return res;
 		}
 	}
 
 	if (!empty)
-		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR: del contents failed %s\n", fullpath.c_str()), EINTERNAL);
+		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR: del contents failed %s\n", fullpath.c_str()), Aresq::EINTERNAL);
 
 	PELOG_LOG((PLV_DEBUG, "to DELDIR smb %s\n", fullpath.c_str()));
 	res = smb2_rmdir(d->smb, fullpath.c_str());
 	if (res < 0 && res != -ENOENT)
-		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR smb failed %d: %s\n", res, fullpath.c_str()), EPARAM);
+		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR smb failed %d: %s\n", res, fullpath.c_str()), Aresq::EPARAM);
 
 	// verify
 	res = isDir(fullpath.c_str());
 	if (res != 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR smb failed %d %s\n", res, fullpath.c_str()), EPARAM);
+		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR smb failed %d %s\n", res, fullpath.c_str()), Aresq::EPARAM);
 
-	PELOG_ERROR_RETURN((PLV_VERBOSE, "DELDIR smb done\n"), OK);
+	PELOG_ERROR_RETURN((PLV_VERBOSE, "DELDIR smb done\n"), Aresq::OK);
 }
 
 int RemoteSmb::delFile(const char *rbase, const char *path)
@@ -496,10 +484,10 @@ int RemoteSmb::delFile(const char *rbase, const char *path)
 int RemoteSmb::delFile(const std::string &fullpath)
 {
 	if (!d->smb.isconnected())
-		PELOG_ERROR_RETURN((PLV_ERROR, "DELFILE smb remote disconnected: %s\n", fullpath), DISCONNECTED);
+		PELOG_ERROR_RETURN((PLV_ERROR, "DELFILE smb remote disconnected: %s\n", fullpath), Aresq::DISCONNECTED);
 	int res = smb2_unlink(d->smb, fullpath.c_str());
 	if (res < 0 && res != -ENOENT)
-		PELOG_ERROR_RETURN((PLV_ERROR, "DELFILE smb failed %d: %s\n", res, fullpath.c_str()), EPARAM);
-	PELOG_ERROR_RETURN((PLV_VERBOSE, "DELFILE smb done\n"), OK);
+		PELOG_ERROR_RETURN((PLV_ERROR, "DELFILE smb failed %d: %s\n", res, fullpath.c_str()), Aresq::EPARAM);
+	PELOG_ERROR_RETURN((PLV_VERBOSE, "DELFILE smb done\n"), Aresq::OK);
 }
 

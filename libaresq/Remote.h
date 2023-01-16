@@ -11,16 +11,6 @@
 class Remote
 {
 public:
-	enum
-	{
-		OK = 0,
-		DISCONNECTED = -1,
-		CONFLICT = -2,
-		EPARAM = -3,		// parameter error
-		EINTERNAL = -4,	// internal error
-		ECANCELE = -5,
-	};
-public:
 	Remote() {}
 	virtual ~Remote() {}
 	static Remote *fromConfig(const config_t *config);

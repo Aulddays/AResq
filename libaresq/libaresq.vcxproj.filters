@@ -54,7 +54,7 @@
     <ClInclude Include="audbg.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="IgnoreList.h">
+    <ClInclude Include="AresqIgnore.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="libsmb2\aes.h">
@@ -129,6 +129,9 @@
     <ClInclude Include="libsmb2\msvc\poll.h">
       <Filter>libsmb2</Filter>
     </ClInclude>
+    <ClInclude Include="Aresq.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -149,7 +152,7 @@
     <ClCompile Include="Remote.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="IgnoreList.cpp">
+    <ClCompile Include="AresqIgnore.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="libsmb2\aes.c">
@@ -297,6 +300,12 @@
       <Filter>libsmb2</Filter>
     </ClCompile>
     <ClCompile Include="RemoteSmb.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="match.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Aresq.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

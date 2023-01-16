@@ -7,25 +7,16 @@
 #include "auto_buf.hpp"
 #include "fsadapter.h"
 #include "Remote.h"
+#include "AresqIgnore.h"
 
 class Root
 {
 public:
-	enum
-	{
-		OK = 0,
-		DISCONNECTED = -1,
-		CONFLICT = -2,
-		REMOTEERR = -3,
-		NOTFOUND = -4,
-		NOTIMPLEMENTED = -5,
-	};
-public:
-	// back up contents of `root` into remote/`name`, using `recpath` as local registry
-	Root(const char *name, const char *root, const char *recpath);
+	Root();
 	~Root();
 
-	int load();
+	// back up contents of `root` into remote/`name`, using `recpath` as local registry
+	int load(int id, const char *name, const char *root, const char *rec_path, AresqIgnore *aresqignore);
 
 	struct Action
 	{
@@ -63,11 +54,14 @@ public:
 
 private:
 	// configs
+	int rootid = -1;	// id of this root
 	std::string _name;	// name of this root. all files will be backed-up in <remote>/name dir
 	std::string _localroot;	// the dir in local storage to backup
 	//abuf<char> ncroot;
 	std::string recpath;	// the dir used as local registry
 	size_t _histnum = 0;
+
+	AresqIgnore *ignore;
 
 	// local registry data
 	// _records format:
@@ -83,7 +77,8 @@ private:
 	//         rec.sub() == 0 if the dir is empty (empty <=> doesnt even have deleted child)
 	//     order of items inside the same dir: FILE -> DIRDEL -> DIR
 	//         dirs do not have `hist` pointer (but `parent`), so DIRDELs are separated from DIR
-	//     if a dir is not empty but has sub DIR item, a "loopback" DIR item must be created to point to parent
+	//         DIRDELs have `hist` but no `parent`
+	//     if a dir is not empty but has no sub DIR item, a "loopback" DIR item must be created to point to parent
 	//         who must be the single DIR and last item inside parent, and whose name() must be 0
 	//     the FILE/DIRDEL/DIR items are in case-insensitive C order
 	// file record:

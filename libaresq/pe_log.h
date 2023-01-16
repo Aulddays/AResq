@@ -17,6 +17,8 @@ enum
 #define PELOG_LOG(a) pelog_printf a
 #define PELOG_ERROR_RETURN(X, Y) do { PELOG_LOG(X); return Y; } while(0)
 #define PELOG_ERROR_RETURNVOID(X) do { PELOG_LOG(X); return; } while(0)
+#define PELOG_LOG_RETURN(X, Y) do { PELOG_LOG(X); return Y; } while(0)
+#define PELOG_LOG_RETURNVOID(X) do { PELOG_LOG(X); return; } while(0)
 
 // MSVC uses "%Iu" for size_t while gcc uses "%zu"
 #ifdef _MSC_VER
