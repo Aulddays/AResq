@@ -10,6 +10,8 @@
 typedef utf16_t NCHART;
 #define _NCT(x)      L ## x
 #define time64 _time64
+#define ftell _ftelli64
+#define fseek _fseeki64
 #else
 typedef char NCHART;
 #define _NCT(x)      x

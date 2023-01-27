@@ -32,12 +32,12 @@ public:
 	Aresq();
 	~Aresq();
 
-	int init(const char *conffile);
+	int init(const std::string &datadir);
 
 	int run();
 
 private:
-	std::string datadir;
+	std::string recorddir;
 
 	struct Backup
 	{

@@ -81,7 +81,7 @@ public:
 		else if (res < 0)
 			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb error %d\n", res), Aresq::EPARAM);
 		connected = true;
-		chunksize = std::min(1024 * 1024u, smb2_get_max_write_size(smb));
+		chunksize = std::min(4 * 1024 * 1024u, smb2_get_max_write_size(smb));
 		return Aresq::OK;
 	}
 	void disconnect()
@@ -198,8 +198,10 @@ struct SmbPutInfo
 {
 	int status = 0;
 	smb2_context *smb = NULL;
+	std::string name;
 	FileHandle lfp;
 	SmbFile rfp;
+	uint64_t totalsize = 0;
 	uint64_t writesize = 0;
 	uint64_t realsize = 0;
 	size_t chunksize = 0;
@@ -229,7 +231,10 @@ void onSmbPutChunk(struct smb2_context *smb2, int status, void *command_data, Sm
 	if (status == 0 || status != info->chunksize)
 		PELOG_ERROR_RETURNVOID((PLV_ERROR, "Upload smb failed 5\n"));
 	info->writesize += status;
-	PELOG_LOG((PLV_DEBUG, "smb %d bytes put. total %"PRIu64"\n", status, info->writesize));
+	PELOG_LOG((PLV_DEBUG, "smb put %d, %"PRIu64" / %"PRIu64" (%d%%). %s\n",
+		status, info->writesize, info->totalsize,
+		(int)(std::min(info->writesize, info->totalsize) * 100 / info->totalsize),
+		info->name.c_str()));
 	info->chunksize = fread(info->buf, 1, info->buf.size(), info->lfp);
 	AuVerify(info->writesize == info->realsize || info->chunksize == 0);		// writesize != realsize only occurs when last chunk has just been put
 	if (info->chunksize == 0)	// no more data
@@ -254,10 +259,14 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 	SmbPutInfo info;
 	info.smb = d->smb;
 	info.max_chunksize = d->smb.getchunksize();
+	info.name = lfile;
 
 	int res = 0;
 	if (!(info.lfp = OpenFile(lfile, _NCT("rb"))))
 		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot read smb file %s\n", lfile), Aresq::EPARAM);
+	fseek(info.lfp, 0, SEEK_END);
+	info.totalsize = ftell(info.lfp);
+	fseek(info.lfp, 0, SEEK_SET);
 	info.rfp.setSmb(info.smb);
 	if (!(info.rfp = smb2_open(info.smb, rfile, O_WRONLY | O_CREAT)))
 	{

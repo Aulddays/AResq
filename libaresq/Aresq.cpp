@@ -22,23 +22,21 @@ struct configext_t : public config_t	// simple resource manager for config_t
 	~configext_t() { config_destroy(this); }
 };
 
-int Aresq::init(const char *conffile)
+int Aresq::init(const std::string &datadir)
 {
 	// load conf file
 	configext_t config;
-	if (CONFIG_FALSE == config_read_file(&config, conffile))
+	if (CONFIG_FALSE == config_read_file(&config, (datadir + "/aresq.conf").c_str()))
 	{
 		PELOG_ERROR_RETURN((PLV_ERROR, "Error loading config file (line %d): %s\n",
 			config_error_line(&config), config_error_text(&config)), -1);
 	}
 
-	// datadir
-	{
-		const char *dir = NULL;
-		if (!config_lookup_string(&config, "general.datadir", &dir) || !dir || !*dir)
-			PELOG_ERROR_RETURN((PLV_ERROR, "general.datadir config not found\n"), -1);
-		datadir = dir;
-	}
+	// logs
+	pelog_setfile((datadir + "/run.log").c_str(), false);
+
+	// recorddir
+	recorddir = datadir + "/records";
 
 	// AresqIgnore
 	ignore = std::make_unique<AresqIgnore>();
@@ -68,7 +66,7 @@ int Aresq::init(const char *conffile)
 			backups.back()->name = name;
 			backups.back()->dir = path;
 			if (backups.back()->root.load(backups.back()->id, name, path,
-					(datadir + '/' + name).c_str(), ignore.get()) != 0)
+					(datadir + "/data/" + name).c_str(), ignore.get()) != 0)
 				PELOG_ERROR_RETURN((PLV_ERROR, "Init ackup idx(%d) %s failed\n", i, name), -1);
 		}
 	}

@@ -6,7 +6,8 @@
 #include "pe_log.h"
 
 #ifdef _WIN32
-#include <Windows.h>
+#include <windows.h>
+#include <shlobj.h>
 #include <tchar.h>
 #define DIRSEP '\\'
 
@@ -35,16 +36,17 @@ inline void normDirSep(abuf<utf8_t> &path)
 
 int CreateDir(const char *dir)
 {
-	// check existance
 	abuf<utf16_t> pathbuf;
 	utf8to16((const utf8_t *)dir, pathbuf);
 	normDirSep(pathbuf);
+	// check existance
 	DWORD dwAttrib = GetFileAttributesW(pathbuf);
 	if (INVALID_FILE_ATTRIBUTES != dwAttrib && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
 		return -1;
 	if (INVALID_FILE_ATTRIBUTES != dwAttrib && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
 		return 0;
-	if (!CreateDirectoryW(pathbuf, NULL))
+	int res = SHCreateDirectory(NULL, pathbuf);
+	if (res != ERROR_SUCCESS && res != ERROR_FILE_EXISTS && res != ERROR_ALREADY_EXISTS)
 		return -2;
 	return 0;
 }

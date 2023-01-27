@@ -15,11 +15,11 @@ Root::Root()
 {
 }
 
-static inline size_t getFileSize(FILE *fp)
+static inline uint64_t getFileSize(FILE *fp)
 {
-	size_t pos = ftell(fp);
+	uint64_t pos = ftell(fp);
 	fseek(fp, 0, SEEK_END);
-	size_t size = ftell(fp);
+	uint64_t size = ftell(fp);
 	fseek(fp, pos, SEEK_SET);
 	return size;
 }
@@ -32,7 +32,7 @@ Root::~Root()
 	FILE *fp = NULL;
 	// records
 	AuVerify(fp = OpenFile(recpath.c_str(), "record", _NCT("rb")));
-	size_t fsize = getFileSize(fp);
+	size_t fsize = (size_t)getFileSize(fp);
 	AuVerify(fsize == _records.size() * sizeof(_records[0]));
 	buf.resize(fsize > 0 ? fsize : 1);
 	AuVerify(fsize == fread(buf, 1, fsize, fp));
@@ -40,7 +40,7 @@ Root::~Root()
 	AuVerify(memcmp(buf, _records.data(), fsize) == 0);
 	// rname
 	AuVerify(fp = OpenFile(recpath.c_str(), "rname", _NCT("rb")));
-	fsize = getFileSize(fp);
+	fsize = (size_t)getFileSize(fp);
 	AuVerify(fsize == _rname.size() * sizeof(_rname[0]));
 	buf.resize(fsize > 0 ? fsize : 1);
 	AuVerify(fsize == fread(buf, 1, fsize, fp));
@@ -48,7 +48,7 @@ Root::~Root()
 	AuVerify(memcmp(buf, _rname.data(), fsize) == 0);
 	// hists
 	AuVerify(fp = OpenFile(recpath.c_str(), "hist", _NCT("rb")));
-	fsize = getFileSize(fp);
+	fsize = (size_t)getFileSize(fp);
 	AuVerify(fsize == _hists.size() * sizeof(_hists[0]));
 	buf.resize(fsize > 0 ? fsize : 1);
 	AuVerify(fsize == fread(buf, 1, fsize, fp));
@@ -74,7 +74,7 @@ int Root::load(int id, const char *name, const char *root, const char *rec_path,
 	// load record
 	if (!(fp = OpenFile(recpath.c_str(), "record", _NCT("rb"))))
 		return init();
-	size_t fsize = getFileSize(fp);
+	size_t fsize = (size_t)getFileSize(fp);
 	if (fsize % sizeof(_records.front()) != 0)
 	{
 		PELOG_LOG((PLV_ERROR, "Invalid record size %zu\n", fsize));
@@ -95,7 +95,7 @@ int Root::load(int id, const char *name, const char *root, const char *rec_path,
 	// load rname
 	if (!(fp = OpenFile(recpath.c_str(), "rname", _NCT("rb"))))
 		return init();
-	fsize = getFileSize(fp);
+	fsize = (size_t)getFileSize(fp);
 	_rname.resize(fsize);
 	if (fread(_rname.data(), 1, fsize, fp) != fsize)
 	{
@@ -106,7 +106,7 @@ int Root::load(int id, const char *name, const char *root, const char *rec_path,
 	// load hist
 	if (!(fp = OpenFile(recpath.c_str(), "hist", _NCT("rb"))))
 		return init();
-	fsize = getFileSize(fp);
+	fsize = (size_t)getFileSize(fp);
 	if (fsize % sizeof(_hists.front()) != 0)
 	{
 		PELOG_LOG((PLV_ERROR, "Invalid hist size %zu\n", fsize));
