@@ -26,6 +26,7 @@ public:
 		EPARAM = -6,		// parameter error
 		EINTERNAL = -7,	// internal error
 		ECANCELE = -8,
+		FILELOCKED = -9,		// file exists but failed to read
 	};
 
 public:

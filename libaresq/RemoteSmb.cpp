@@ -263,7 +263,7 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 
 	int res = 0;
 	if (!(info.lfp = OpenFile(lfile, _NCT("rb"))))
-		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot read smb file %s\n", lfile), Aresq::EPARAM);
+		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot read smb file %s\n", lfile), Aresq::FILELOCKED);
 	fseek(info.lfp, 0, SEEK_END);
 	info.totalsize = ftell(info.lfp);
 	fseek(info.lfp, 0, SEEK_SET);

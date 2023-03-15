@@ -1,5 +1,7 @@
 #pragma once
 
+#include "pe_log.h"
+
 #ifdef _WIN32
 
 #define NOMINMAX 1
@@ -12,6 +14,8 @@
 
 #define AuVerify(_Expression) do { \
 	if (!(_Expression)) { \
+		PELOG_LOG((PLV_ERROR, "AuVerify Failed. %s:%d %s\n", __FILE__, __LINE__, __FUNCTION__)); \
+		pelog_flush(); \
 		_CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, NULL, NULL); \
 		DebugBreak();} \
 } while(0)

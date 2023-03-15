@@ -110,30 +110,43 @@ private:
 		std::vector<FsItem> dirs;
 	};
 	std::deque<RefreshIter> restate;
-	std::map<uint32_t, int> redostate;	// record redo during refresh, for debugging
+	std::map<std::string, int> failstate;	// record fail during refresh, for debugging
+	bool recordFail(const char *path)
+	{
+		failstate[path]++;
+		if (failstate[path] > 2)
+		{
+			PELOG_LOG((PLV_ERROR, "Too many fails. %s\n", path));
+			pelog_flush();
+			return false;
+		}
+		return true;
+	}
 	//int refreshBuildPath(abuf<char> &path);
 
 	enum RecPtrType { RPNONE, RPSUB, RPNEXT };
 	struct RecPtr
 	{
+		RecPtr(Root *root): _root(root) {}
 		uint32_t _id = 0;
 		RecPtrType _type = RPNONE;
+		Root *_root = NULL;
 		inline void set(uint32_t id, RecPtrType type) { _id = id; _type = type; AuVerify(type != RPNONE); }
-		inline uint32_t operator()(Root *root)
+		inline uint32_t operator()()
 		{
 			AuVerify(_id != 0 && (_type == RPSUB || _type == RPNEXT));
 			if (_type == RPSUB)
-				return root->_records[_id].sub();
+				return _root->_records[_id].sub();
 			else
-				return root->_records[_id].next();
+				return _root->_records[_id].next();
 		}
-		inline void operator()(uint32_t tid, Root *root)
+		inline void operator()(uint32_t tid)
 		{
 			AuVerify(_id != 0 && (_type == RPSUB || _type == RPNEXT));
 			if (_type == RPSUB)
-				root->_records[_id].sub(tid);
+				_root->_records[_id].sub(tid);
 			else
-				root->_records[_id].next(tid);
+				_root->_records[_id].next(tid);
 		}
 	};
 

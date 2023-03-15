@@ -80,7 +80,7 @@ public:
 	inline uint32_t sub() const { return p2l24(_data + 14); }
 	inline void sub(uint32_t subid) { AuVerify(subid < (1 << 24)); l2p24(subid, _data + 14); }
 
-	// flags uint8(_data + 17): isdir, isdeleted, isslink, ishlink, isexe
+	// flags uint8(_data + 17): isdir, isdeleted, isslink, ishlink, isexe, ispending
 private:
 	inline bool getflag(int bit) const { return (_data[17] & (1 << bit)) != 0; }
 	inline void setflag(bool flag, int bit) { if (flag) _data[17] |= (1u << bit); else _data[17] &= ~(1u << bit); }
@@ -95,6 +95,9 @@ public:
 	inline void ishlink(bool flag) { setflag(flag, 3); }
 	inline bool isexe() const { return getflag(4); }
 	inline void isexe(bool flag) { setflag(flag, 4); }
+	// ispending: FILE: local change not synced
+	inline bool ispending() const { return getflag(5); }
+	inline void ispending(bool flag) { setflag(flag, 5); }
 
 public:
 	RecordItem()

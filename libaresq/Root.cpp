@@ -272,7 +272,7 @@ int Root::startRefresh()
 	restate.clear();
 	restate.resize(1);
 	restate.back().rid = 1;
-	redostate.clear();
+	failstate.clear();
 	return 0;
 }
 
@@ -281,7 +281,20 @@ int Root::refreshStep(int state, Action &action)
 {
 	// TODO: do some cleanup if state is not OK
 	if (state != Aresq::OK)
-		return state;
+	{
+		if (state == Aresq::NOTFOUND && (action.type == Action::ADDFILE || action.type == Action::MODFILE))
+		{
+			PELOG_LOG((PLV_ERROR, "File missing, fallback to parent. %s\n", action.name.buf()));
+			AuVerify(recordFail(action.name.buf()));
+			AuAssert(restate.size() >= 2);
+			restate.pop_back();
+			restate.back().stage = RefreshIter::INIT;
+			restate.back().files.clear();
+			restate.back().dirs.clear();
+		}
+		else
+			return state;
+	}
 
 	action.type = Action::NONE;
 	// check restate first
@@ -305,8 +318,9 @@ int Root::refreshStep(int state, Action &action)
 			if (rec.isdel() || !rec.isdir() || rec.parent() != restate[i - 1].rid ||
 				reiter.stage != RefreshIter::INIT && pathCmpMt(reiter.name, getName(reiter.rid)) != 0)
 			{
-				PELOG_LOG((PLV_ERROR, "Invalid refresh state %d (%s : %s : %s). move back\n",
+				PELOG_LOG((PLV_ERROR, "Invalid refresh state %d (%s : %s : %s). move back to parent\n",
 					(int)i, reiter.path.buf(), reiter.name.buf(), getName(reiter.rid)));
+				AuVerify(recordFail(reiter.path.buf()));
 				restate.resize(i + 1);
 				reiter.stage = RefreshIter::REDOUPPER;
 				break;
@@ -343,7 +357,8 @@ int Root::refreshStep(int state, Action &action)
 					PELOG_LOG((PLV_ERROR, "Root dir listing failed: %s\n", _localroot.c_str()));
 				else
 				{
-					PELOG_LOG((PLV_WARNING, "Dir missing, REDO. %s\n", reiter.path.buf()));
+					PELOG_LOG((PLV_WARNING, "Dir missing, REDO parent. %s\n", reiter.path.buf()));
+					AuVerify(recordFail(reiter.path.buf()));
 					reiter.stage = RefreshIter::REDOUPPER;	// just rerun parent dir
 				}
 				break;
@@ -571,13 +586,6 @@ int Root::refreshStep(int state, Action &action)
 				restate.back().stage = RefreshIter::INIT;
 				restate.back().files.clear();
 				restate.back().dirs.clear();
-				redostate[restate.back().rid]++;
-				if (redostate[restate.back().rid] > 2)
-				{
-					PELOG_LOG((PLV_ERROR, "Too many redos. %s\n", restate.back().path.buf()));
-					pelog_flush();
-					AuVerify(false);
-				}
 			}
 			break;
 
@@ -630,17 +638,17 @@ int Root::addDir(const char *dir, size_t dlen, uint32_t &did, Remote *remote)
 	// add local
 	std::vector<uint32_t> cids;	// changed ids
 	// look for a loopback record first
-	RecPtr preptr;
+	RecPtr preptr(this);
 	did = 0;
-	for (preptr.set(pid, RPSUB); preptr(this) != 0; preptr.set(preptr(this), RPNEXT))
+	for (preptr.set(pid, RPSUB); preptr() != 0; preptr.set(preptr(), RPNEXT))
 	{
-		uint32_t lbid = preptr(this);
+		uint32_t lbid = preptr();
 		if (_records[lbid].isdir() && !*getName(lbid))	// found loopback record
 		{
 			PELOG_LOG((PLV_DEBUG, "Reusing a loopback record %u\n", lbid));
 			AuVerify(_records[lbid].next() == 0 && _records[lbid].parent() == pid && preptr._id != pid &&
 				(!_records[preptr._id].isdir() || _records[preptr._id].isdel()));
-			preptr(_records[lbid].next(), this);	// detach it, and atatch back later, for simplicity
+			preptr(_records[lbid].next());	// detach it, and atatch back later, for simplicity
 			did = lbid;	// use it as the new record
 			cids.push_back(did);
 			cids.push_back(preptr._id);
@@ -657,8 +665,8 @@ int Root::addDir(const char *dir, size_t dlen, uint32_t &did, Remote *remote)
 	// insert the new record
 	cids.push_back(preid);
 	preptr.set(preid, preid == pid ? RPSUB : RPNEXT);
-	ditem.next(preptr(this));
-	preptr(did, this);
+	ditem.next(preptr());
+	preptr(did);
 	AuAssert(verifydir(pid));
 	writeRec(cids);
 	PELOG_LOG((PLV_INFO, "DIR ADDed(%u) %s : %.*s\n", did, _localroot.c_str(), dlen, dir));
@@ -670,6 +678,7 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid, Remote *remote)
 {
 	// TODO: manage history versions
 	int res = Aresq::OK;
+	bool pendingfail = false;	// error occurred but is allowed to continue
 	// process parents
 	size_t baselen = splitPath(file, flen);
 	uint32_t pid = 1;
@@ -698,22 +707,30 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid, Remote *remote)
 	// add remote first
 	if ((res = remote->addFile(_localroot.c_str(), _name.c_str(), std::string(file, flen).c_str())) != Aresq::OK)
 	{
-		if (res != Aresq::DISCONNECTED)
+		if (res == Aresq::NOTFOUND)
+			PELOG_ERROR_RETURN((PLV_ERROR, "addFile failed. file missing %d. %.*s\n", res, flen, file), Aresq::NOTFOUND);
+		else if (res == Aresq::FILELOCKED)
+		{
+			// file locked, record it locally and continue
+			pendingfail = true;
+			PELOG_LOG((PLV_ERROR, "addFile failed. file locked %d. %.*s\n", res, flen, file));
+		}
+		else if (res != Aresq::DISCONNECTED)
 			PELOG_ERROR_RETURN((PLV_ERROR, "addFile failed. remote error %d. %.*s\n", res, flen, file), Aresq::REMOTEERR);
 		else
 			PELOG_ERROR_RETURN((PLV_TRACE, "Remote disconnected.\n"), Aresq::DISCONNECTED);
 	}
 	// add local
 	std::vector<uint32_t> cids;	// changed ids
-	RecPtr preptr;
+	RecPtr preptr(this);
 	if (fid != 0)	// already exists, reuse it and look for pre
 	{
-		for (preptr.set(pid, RPSUB); preptr(this) != 0 && preptr(this) != fid; preptr.set(preptr(this), RPNEXT))
+		for (preptr.set(pid, RPSUB); preptr() != 0 && preptr() != fid; preptr.set(preptr(), RPNEXT))
 		{
-			if (preptr(this) == fid)
+			if (preptr() == fid)
 				break;
 		}
-		AuVerify(preptr(this) == fid);
+		AuVerify(preptr() == fid);
 	}
 	else
 	{
@@ -721,18 +738,22 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid, Remote *remote)
 		preptr.set(preid, preid == pid ? RPSUB : RPNEXT);
 		fid = allocRec(cids);
 		_records[fid].name(allocRName(filename, nlen));
-		_records[fid].next(preptr(this));
-		preptr(fid, this);
+		_records[fid].next(preptr());
+		preptr(fid);
 		cids.push_back(preid);
 	}
 	cids.push_back(fid);
 	RecordItem &fitem = _records[fid];
 	fitem.isdir(false);
-	fitem.time((uint32_t)ftime);
-	fitem.size24(fsize);
+	fitem.ispending(pendingfail);
+	if (!pendingfail)	// update time and size only if not pending_fail
+	{
+		fitem.time((uint32_t)ftime);
+		fitem.size24(fsize);
+	}
 	fitem.isdel(false);
 	// add a loopback record if there isn't one
-	for (preptr.set(fid, RPNEXT); preptr(this) != 0; preptr.set(preptr(this), RPNEXT))
+	for (preptr.set(fid, RPNEXT); preptr() != 0; preptr.set(preptr(), RPNEXT))
 		;	// look for the last record in this dir
 	if (!(_records[preptr._id].isdir() && !_records[preptr._id].isdel()))	// no dir and no loopback
 	{
@@ -740,7 +761,7 @@ int Root::addFile(const char *file, size_t flen, uint32_t &fid, Remote *remote)
 		_records[lbid].isdir(true);
 		_records[lbid].parent(pid);
 		cids.push_back(preptr._id);
-		preptr(lbid, this);
+		preptr(lbid);
 		PELOG_LOG((PLV_DEBUG, "Loopback record ADDed(%u)\n", lbid, _localroot.c_str()));
 	}
 	AuAssert(verifydir(pid));
@@ -806,10 +827,10 @@ int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, Remot
 				PELOG_ERROR_RETURN((PLV_TRACE, "Remote disconnected.\n"), Aresq::DISCONNECTED);
 		}
 		// delete record
-		RecPtr preptr;
-		for (preptr.set(pid, RPSUB); preptr(this) != rid; preptr.set(preptr(this), RPNEXT))
+		RecPtr preptr(this);
+		for (preptr.set(pid, RPSUB); preptr() != rid; preptr.set(preptr(), RPNEXT))
 			;	// look for pre
-		AuVerify(preptr(this) == rid);
+		AuVerify(preptr() == rid);
 		cids.push_back(rid);
 		if (!_records[rid].next() && preptr._type != RPSUB && (!_records[preptr._id].isdir() || _records[preptr._id].isdel()))
 		{
@@ -821,7 +842,7 @@ int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, Remot
 		{
 			// detach
 			cids.push_back(preptr._id);
-			preptr(_records[rid].next(), this);
+			preptr(_records[rid].next());
 			// recycle
 			recycleRec(rid, cids);
 		}
@@ -866,14 +887,14 @@ int Root::delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen,
 				PELOG_ERROR_RETURN((PLV_TRACE, "Remote disconnected.\n"), Aresq::DISCONNECTED);
 		}
 		// del local
-		RecPtr preptr;
-		for (preptr.set(pid, RPSUB); preptr(this) != rid; preptr.set(preptr(this), RPNEXT))
+		RecPtr preptr(this);
+		for (preptr.set(pid, RPSUB); preptr() != rid; preptr.set(preptr(), RPNEXT))
 			;	// look for pre
-		AuVerify(preptr(this) == rid);
+		AuVerify(preptr() == rid);
 		// detach
 		cids.push_back(rid);
 		cids.push_back(preptr._id);
-		preptr(_records[rid].next(), this);
+		preptr(_records[rid].next());
 		// recycle
 		recycleRec(rid, cids);
 		// if there is no more file/dir under parent, also delete the loopback record
