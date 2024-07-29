@@ -63,6 +63,8 @@ public:
 		this->user = user;
 		this->password = password;
 		this->path = path;
+		if (this->path == "/" || this->path == "." || this->path == "./")
+			this->path == "";
 		smb2_set_user(smb, this->user.c_str());
 		smb2_set_password(smb, this->password.c_str());
 		smb2_set_security_mode(smb, SMB2_NEGOTIATE_SIGNING_ENABLED);

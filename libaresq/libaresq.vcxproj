@@ -82,6 +82,7 @@
     <ClInclude Include="record.h" />
     <ClInclude Include="Remote.h" />
     <ClInclude Include="RemoteSmb.h" />
+    <ClInclude Include="resguard.h" />
     <ClInclude Include="Root.h" />
     <ClInclude Include="libsmb2\aes.h" />
     <ClInclude Include="libsmb2\aes128ccm.h" />

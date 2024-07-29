@@ -25,10 +25,13 @@ struct FsItem
 	uint32_t time = 0;
 	uint64_t size = 0;
 	uint8_t flag = 0;
-	inline bool getflag(int bit) const { return (flag & (1 << bit)) != 0; }
-	inline void setflag(bool flag, int bit) { if (flag) this->flag |= (1u << bit); else this->flag &= ~(1u << bit); }
 	inline bool isdir() const { return getflag(0); }
 	inline void isdir(bool flag) { setflag(flag, 0); }
+	inline bool isignore() const { return getflag(1); }
+	inline void isignore(bool flag) { setflag(flag, 1); }
+private:
+	inline bool getflag(int bit) const { return (flag & (1 << bit)) != 0; }
+	inline void setflag(bool flag, int bit) { if (flag) this->flag |= (1u << bit); else this->flag &= ~(1u << bit); }
 };
 
 class FileHandle
@@ -55,7 +58,7 @@ inline int buildPath(const char *dir, const char *filename, abuf<char> &path) { 
 FILE *OpenFile(const char *filename, const NCHART *mode);
 FILE *OpenFile(const char *dir, const char *filename, const NCHART *mode);
 
-int ListDir(const abufchar &dir, std::vector<FsItem> &dirs, std::vector<FsItem> &files);
+int ListDir(const abufchar &dir, std::vector<FsItem> &items);
 
 int pathCmpSt(const char *l, const char *r);		// keep case diffs near each other but different, used for sort
 int pathCmpDp(const char *l, const char *r);	// completely case insensitive

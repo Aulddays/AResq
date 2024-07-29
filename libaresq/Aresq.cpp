@@ -66,7 +66,7 @@ int Aresq::init(const std::string &datadir)
 			backups.back()->name = name;
 			backups.back()->dir = path;
 			if (backups.back()->root.load(backups.back()->id, name, path,
-					(datadir + "/data/" + name).c_str(), ignore.get()) != 0)
+					(recorddir + '/' + name).c_str(), ignore.get()) != 0)
 				PELOG_ERROR_RETURN((PLV_ERROR, "Init ackup idx(%d) %s failed\n", i, name), -1);
 		}
 	}

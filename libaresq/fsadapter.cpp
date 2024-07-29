@@ -98,10 +98,9 @@ inline uint64_t filetime2Timet(FILETIME ft)
 	return ((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) / 10000000 - UINT64_C(11644473600);
 }
 
-int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem> &files)
+int ListDir(const abufchar &u8dir, std::vector<FsItem> &items)
 {
-	dirs.clear();
-	files.clear();
+	items.clear();
 
 	// convert to utf16 and append "\\*" to the end for `dir`
 	size_t dirlen = utf8to16_len(u8dir);
@@ -114,7 +113,6 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 	dir[dirlen + 2] = 0;
 	normDirSep(dir);
 
-	std::vector<FsItem> items;
 	WIN32_FIND_DATAW ffd;
 	HANDLE hFind = FindFirstFileW(dir, &ffd);
 	dir[dirlen] = 0;
@@ -141,15 +139,16 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &dirs, std::vector<FsItem
 
 	// dedupe and split
 	const char *lname = "";
-	for (const auto &item : items)
+	for (size_t i = 0; i < items.size(); ++i)
 	{
-		if (pathCmpDp(item.name, lname) == 0)
+		if (pathCmpDp(items[i].name, lname) == 0)
 		{
-			PELOG_LOG((PLV_WARNING, "DUP-CASE %s: %s. drop\n", u8dir.buf(), item.name.buf()));
-			continue;
+			PELOG_LOG((PLV_WARNING, "DUP-CASE %s: %s. drop\n", u8dir.buf(), items[i].name.buf()));
+			items.erase(items.begin() + i);
+			--i;
 		}
-		lname = item.name;
-		(item.isdir() ? dirs : files).push_back(item);
+		else
+		lname = items[i].name;
 	}
 	return 0;
 }
