@@ -23,6 +23,7 @@ public:
 		enum { NONE, ADDDIR, DELDIR, ADDFILE, DELFILE, MODFILE, RENAME} type = NONE;
 		abufchar name;
 		abufchar dst;
+		bool isignore;
 		//union
 		//{
 		//	struct AddParam
@@ -41,14 +42,14 @@ public:
 	int refreshStep(int state, Action &action);
 	int perform(Action &action, Remote *remote);
 	//int addDir(const char *dir) { uint32_t did = 0;  return addDir(dir, strlen(dir), did); }
-	int addFile(const char *file, Remote *remote) { uint32_t fid = 0;  return addFile(file, strlen(file), fid, remote); }
+	//int addFile(const char *file, Remote *remote) { uint32_t fid = 0;  return addFile(file, strlen(file), fid, remote); }
 
-	int addDir(const char *dir, size_t dlen, uint32_t &did, Remote *remote);
-	int delDir(const char *dir, size_t dlen, Remote *remote);
-	int delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, Remote *remote);
-	int addFile(const char *file, size_t flen, uint32_t &fid, Remote *remote);
-	int delFile(const char *filename, size_t flen, Remote *remote);
-	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen, Remote *remote);
+	int addDir(const char *dir, size_t dlen, bool isignore, uint32_t &did, Remote *remote);
+	int delDir(const char *dir, size_t dlen, bool isignore, Remote *remote);
+	int delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, bool isignore, Remote *remote);
+	int addFile(const char *file, size_t flen, bool isignore, uint32_t &fid, Remote *remote);
+	int delFile(const char *filename, size_t flen, bool isignore, Remote *remote);
+	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen, bool isignore, Remote *remote);
 	int eraseName(uint32_t rid);
 
 	// look for the specific name under pid, return rid if found, otherwise pre or parent id
