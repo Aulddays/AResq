@@ -59,6 +59,8 @@ public:
 	// look in whole root, parent id will be returned in `pid`
 	uint32_t findRecordRoot(const char *name, size_t namelen, FindResult &restype, uint32_t &pid);
 
+	bool verify() { return verifyrec(); }
+
 private:
 	// configs
 	int rootid = -1;	// id of this root

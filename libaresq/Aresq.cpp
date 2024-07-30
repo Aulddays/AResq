@@ -92,6 +92,7 @@ int Aresq::run()
 				break;
 			state = root.perform(action, remote.get());
 		}
+		AuAssert(root.verify());
 	}
 	return 0;
 }

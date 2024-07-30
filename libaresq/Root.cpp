@@ -343,7 +343,7 @@ int Root::refreshStep(int state, Action &action)
 				buildPath(relpath, i->name, filerelpath);
 				if (ignore->isignore(filerelpath, i->isdir()))
 				{
-					PELOG_LOG((PLV_VERBOSE, "File ignored: %s : %s\n", _localroot.c_str(), filerelpath.buf()));
+					PELOG_LOG((PLV_DEBUG, "File ignored: %s : %s\n", _localroot.c_str(), filerelpath.buf()));
 					i->isignore(true);
 				}
 			}
@@ -386,6 +386,8 @@ int Root::refreshStep(int state, Action &action)
 				{
 					if (isdel && !fitem.isignore())
 						PELOG_LOG((PLV_DEBUG, "DEL item detected %s: %s\n", reiter.path.buf(), fitem.name(_rname)));
+					else if (!isdel && reiter.files[fidx].isignore())
+						PELOG_LOG((PLV_DEBUG, "IGNORE del item detected %s: %s\n", reiter.path.buf(), fitem.name(_rname)));
 					// move forward before return, since prog is likely to be deleted
 					if (!fitem.islast())
 					{
@@ -399,7 +401,7 @@ int Root::refreshStep(int state, Action &action)
 					}
 					action.type = fitem.isdir() ? Action::DELDIR : Action::DELFILE;
 					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), fitem.name(_rname), action.name);
-					action.isignore = reiter.files[fidx].isignore();
+					action.isignore = !isdel && reiter.files[fidx].isignore();
 					return 1;
 				}
 			}
@@ -689,7 +691,7 @@ int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, bool 
 
 	// must be an empty dir if reaches here
 	// delete remote
-	if ((res = remote->delDir(_name.c_str(), std::string(dir, dlen).c_str())) != Aresq::OK)
+	if (!_records[rid].isignore() && (res = remote->delDir(_name.c_str(), std::string(dir, dlen).c_str())) != Aresq::OK)
 	{
 		if (res != Aresq::DISCONNECTED)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Del file failed. remote error %d. %.*s\n", res, dlen, dir), Aresq::REMOTEERR);
@@ -713,10 +715,9 @@ int Root::delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, bool 
 		preptr(_records[rid].next());
 		_records[preptr._id].islast(_records[rid].islast());
 	}
-	// recycle
-	recycleRec(rid, cids);
-
 	AuAssert(verifydir(pid));
+
+	recycleRec(rid, cids);	// recycle
 	writeRec(cids);
 	PELOG_LOG((PLV_INFO, "DIR DELed(%u) %s : %.*s\n", rid, _localroot.c_str(), dlen, dir));
 	return Aresq::OK;
@@ -741,7 +742,7 @@ int Root::delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen,
 	std::vector<uint32_t> cids;	// changed ids
 	int res = 0;
 	// del remote
-	if ((res = remote->delFile(_name.c_str(), std::string(filename, flen).c_str())) != Aresq::OK)
+	if (!_records[rid].isignore() && (res = remote->delFile(_name.c_str(), std::string(filename, flen).c_str())) != Aresq::OK)
 	{
 		if (res != Aresq::DISCONNECTED)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Del file failed. remote error %d. %.*s\n", res, flen, filename), Aresq::REMOTEERR);
@@ -756,13 +757,19 @@ int Root::delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen,
 	// detach
 	cids.push_back(rid);
 	cids.push_back(preptr._id);
-	preptr(_records[rid].next());
-	if (preptr._id == pid && preptr() == pid)	// rid is pid's only child
-		preptr(0);
-	// recycle
-	recycleRec(rid, cids);
-
+	// update ptrs
+	if (preptr._type == RPSUB)
+	{
+		preptr(_records[rid].islast() ? 0 : _records[rid].next());
+	}
+	else
+	{
+		preptr(_records[rid].next());
+		_records[preptr._id].islast(_records[rid].islast());
+	}
 	AuAssert(verifydir(pid));
+
+	recycleRec(rid, cids);	// recycle
 	writeRec(cids);
 	PELOG_LOG((PLV_INFO, "FILE DELed(%u) %s : %.*s\n", rid, _localroot.c_str(), flen, filename));
 	return Aresq::OK;
