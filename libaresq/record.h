@@ -129,19 +129,4 @@ public:
 	}
 };
 
-class HistItem
-{
-public:
-	HistItem()
-	{
-		for (int i = 0; i < sizeof(_data); ++i)
-			_data[i] = 0;
-	}
-
-	inline uint32_t next() const { return 0; };
-
-private:
-	uint8_t _data[4];
-};
-
 #pragma pack(pop)

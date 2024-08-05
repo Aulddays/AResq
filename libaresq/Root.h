@@ -16,7 +16,7 @@ public:
 	~Root();
 
 	// back up contents of `root` into remote/`name`, using `recpath` as local registry
-	int load(int id, const char *name, const char *root, const char *rec_path, AresqIgnore *aresqignore);
+	int load(int id, const char *name, const char *root, const char *rec_path, bool keephist, AresqIgnore *aresqignore);
 
 	struct Action
 	{
@@ -24,6 +24,7 @@ public:
 		abufchar name;
 		abufchar dst;
 		bool isignore;
+		bool keephist;
 		//union
 		//{
 		//	struct AddParam
@@ -45,11 +46,11 @@ public:
 	//int addFile(const char *file, Remote *remote) { uint32_t fid = 0;  return addFile(file, strlen(file), fid, remote); }
 
 	int addDir(const char *dir, size_t dlen, bool isignore, uint32_t &did, Remote *remote);
-	int delDir(const char *dir, size_t dlen, bool isignore, Remote *remote);
-	int delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, bool isignore, Remote *remote);
-	int addFile(const char *file, size_t flen, bool isignore, uint32_t &fid, Remote *remote);
-	int delFile(const char *filename, size_t flen, bool isignore, Remote *remote);
-	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen, bool isignore, Remote *remote);
+	int delDir(const char *dir, size_t dlen, bool isignore, bool keephist, bool noremote, Remote *remote);
+	int delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, bool isignore, bool keephist, bool noremote, Remote *remote);
+	int addFile(const char *file, size_t flen, bool isignore, bool keephist, uint32_t &fid, Remote *remote);
+	int delFile(const char *filename, size_t flen, bool isignore, bool keephist, bool noremote, Remote *remote);
+	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen, bool isignore, bool keephist, bool noremote, Remote *remote);
 	int eraseName(uint32_t rid);
 
 	// look for the specific name under pid, return rid if found, otherwise pre or parent id
@@ -68,6 +69,8 @@ private:
 	std::string _localroot;	// the dir in local storage to backup
 	//abuf<char> ncroot;
 	std::string recpath;	// the dir used as local registry
+
+	bool keephist;
 
 	AresqIgnore *ignore;
 

@@ -19,6 +19,9 @@ public:
 	virtual int addFile(const char *lbase, const char *rbase, const char *path) = 0;
 	virtual int delDir(const char *rbase, const char *path) = 0;
 	virtual int delFile(const char *rbase, const char *path) = 0;
+	virtual int putHist(const char *rbase, const char *path) = 0;
+	// rename/move file or dir. force: delete destination if already exists 
+	virtual int moveFile(const char *oldpath, const char *newpath, bool force) = 0;
 
 	enum { FT_NONE = 0, FT_FILE, FT_DIR, FT_LINK, FT_UNK };
 	virtual int getType(const char *fullpath) = 0;

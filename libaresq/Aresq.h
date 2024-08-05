@@ -37,6 +37,9 @@ public:
 
 	int run();
 
+	static std::string encpwd(const char *code);
+	static std::string decpwd(const char *code);
+
 private:
 	std::string recorddir;
 

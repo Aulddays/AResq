@@ -15,8 +15,9 @@ public:
 	virtual int addFile(const char *lbase, const char *rbase, const char *path);
 	virtual int delDir(const char *rbase, const char *path);
 	virtual int delFile(const char *rbase, const char *path);
+	virtual int putHist(const char *rbase, const char *path);
 	virtual int getType(const char *fullpath);
-
+	virtual int moveFile(const char *oldpath, const char *newpath, bool force);
 
 protected:
 	int addDir(const std::string &fullpath);

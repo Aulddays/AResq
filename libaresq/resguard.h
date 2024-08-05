@@ -41,7 +41,7 @@ public:
 	// Default deleters
 	// FILE => fclose
 	template <typename U = Res, typename std::enable_if<std::is_same<U, FILE>::value, bool>::type = true>
-	ResGuard(Res *r) : res(r), deleter(::fclose) { printf("Construct FILE\n"); }
+	ResGuard(Res *r) : res(r), deleter(::fclose) { }
 	template <typename U = Res, typename std::enable_if<std::is_same<U, FILE>::value, bool>::type = true>
 	const ResGuard &operator =(Res *r) { release(); res = r; deleter = fclose; return *this; }
 

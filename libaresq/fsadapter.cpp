@@ -39,13 +39,19 @@ int CreateDir(const char *dir)
 	abuf<utf16_t> pathbuf;
 	utf8to16((const utf8_t *)dir, pathbuf);
 	normDirSep(pathbuf);
+	// relative to absolute
+	size_t abssize = GetFullPathNameW(pathbuf, 0, NULL, NULL);
+	if (abssize == 0)
+		return -2;
+	abuf<utf16_t> abspathbuf(abssize);
+	GetFullPathNameW(pathbuf, abspathbuf.size(), abspathbuf, NULL);
 	// check existance
-	DWORD dwAttrib = GetFileAttributesW(pathbuf);
+	DWORD dwAttrib = GetFileAttributesW(abspathbuf);
 	if (INVALID_FILE_ATTRIBUTES != dwAttrib && !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
 		return -1;
 	if (INVALID_FILE_ATTRIBUTES != dwAttrib && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
 		return 0;
-	int res = SHCreateDirectory(NULL, pathbuf);
+	int res = SHCreateDirectory(NULL, abspathbuf);
 	if (res != ERROR_SUCCESS && res != ERROR_FILE_EXISTS && res != ERROR_ALREADY_EXISTS)
 		return -2;
 	return 0;

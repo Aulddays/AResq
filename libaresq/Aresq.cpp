@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "Aresq.h"
+#include <random>
 
 #define LIBCONFIG_STATIC
 #include "libconfig/libconfig.h"
@@ -48,6 +49,10 @@ int Aresq::init(const std::string &datadir)
 	if (!remote)
 		PELOG_ERROR_RETURN((PLV_ERROR, "remote config error\n"), -1);
 
+	// hist
+	int keephist = true;
+	config_lookup_bool(&config, "general.history", &keephist);
+
 	// backups
 	{
 		config_setting_t *cbks = config_lookup(&config, "backups");
@@ -66,7 +71,7 @@ int Aresq::init(const std::string &datadir)
 			backups.back()->name = name;
 			backups.back()->dir = path;
 			if (backups.back()->root.load(backups.back()->id, name, path,
-					(recorddir + '/' + name).c_str(), ignore.get()) != 0)
+					(recorddir + '/' + name).c_str(), keephist != 0, ignore.get()) != 0)
 				PELOG_ERROR_RETURN((PLV_ERROR, "Init ackup idx(%d) %s failed\n", i, name), -1);
 		}
 	}
@@ -95,4 +100,65 @@ int Aresq::run()
 		AuAssert(root.verify());
 	}
 	return 0;
+}
+
+const char *cycode = "faieugrf;owtnpi4u5hutkerfbuoery4ug3";
+const char *cypat = "*#**#";
+const char *codebook = "6psUoSXW3rVZhI1z";
+
+std::string Aresq::encpwd(const char *code)
+{
+	if (!code || !*code)
+		return "";
+	std::string encode = cypat;
+	std::mt19937 rng(std::random_device{}());
+	std::uniform_int_distribution<uint32_t> dist(0, 0xffffffffu);
+	uint32_t seed = dist(rng);
+	for (size_t i = 0; i < sizeof(seed); ++i)
+	{
+		uint8_t c = (seed >> (i * 8)) & 0xff;
+		encode.push_back(codebook[c & 0xf]);
+		encode.push_back(codebook[(c >> 4) & 0xf]);
+	}
+	for (uint32_t cp = 0; *code; ++code)
+	{
+		if (cycode[cp] == 0)
+			cp = 0;
+		uint8_t c = (uint8_t)*code ^ seed ^ cycode[cp];
+		encode.push_back(codebook[c & 0xf]);
+		encode.push_back(codebook[(c >> 4) & 0xf]);
+		seed = seed * 16777213 + 6423135;
+	}
+	return encode;
+}
+
+inline uint8_t decc(uint8_t c)
+{
+	for (size_t i = 0; codebook[i]; ++i)
+	{
+		if (codebook[i] == c)
+			return i;
+	}
+	return 16;
+}
+std::string Aresq::decpwd(const char *code)
+{
+	if (strncmp(code, cypat, strlen(cypat)) != 0)
+		return code;
+	code += strlen(cypat);
+	uint32_t seed = 0;
+	for (size_t i = 0; i < sizeof(seed) * 2; ++i, ++code)
+	{
+		seed = seed | (decc(*code) << (4 * i));
+	}
+	std::string decode;
+	for (uint32_t cp = 0; code[0] && code[1]; code+= 2)
+	{
+		if (cycode[cp] == 0)
+			cp = 0;
+		uint8_t c = decc(code[0]) | (decc(code[1]) << 4);
+		decode.push_back(c ^ seed ^ cycode[cp]);
+		seed = seed * 16777213 + 6423135;
+	}
+	return decode;
 }
