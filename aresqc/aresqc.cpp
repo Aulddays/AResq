@@ -9,10 +9,46 @@
 #include <vector>
 #include <memory>
 #include <direct.h>
+#include <signal.h>
 
 #include "libaresq/Aresq.h"
 
 int doencdec(bool enc);
+
+Aresq aresq;
+
+#ifdef _WIN32
+BOOL WINAPI sighdl(DWORD code)
+{
+	switch (code)
+	{
+	case CTRL_C_EVENT:
+	case CTRL_BREAK_EVENT:
+	case CTRL_CLOSE_EVENT:
+	case CTRL_LOGOFF_EVENT:
+	case CTRL_SHUTDOWN_EVENT:
+		PELOG_LOG((PLV_INFO, "Stopping\n"));
+		aresq.stop();
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+#else
+void sighdl(int code)
+{
+	if (code == SIGINT || code == SIGTERM || code == SIGABRT)
+	{
+		PELOG_LOG((PLV_INFO, "Stopping\n"));
+		aresq.stop();
+	}
+	else if (code == SIGUSR1)
+	{
+		PELOG_LOG((PLV_TRACE, "SIGUSR1 received\n"));
+		apass.dumpStatus();
+	}
+}
+#endif
 
 int main(int argc, char* argv[])
 {
@@ -26,9 +62,17 @@ int main(int argc, char* argv[])
 	if (argc > 1)
 		datadir = argv[1];
 
-	Aresq aresq;
 	if (aresq.init(datadir) != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "init failed\n"), -1);
+
+#ifdef _WIN32
+	SetConsoleCtrlHandler(sighdl, TRUE);
+#else
+	signal(SIGINT, sighdl);
+	signal(SIGTERM, sighdl);
+	signal(SIGABRT, sighdl);
+	signal(SIGUSR1, sighdl);
+#endif
 
 	return aresq.run();
 }

@@ -20,7 +20,7 @@ public:
 
 	struct Action
 	{
-		enum { NONE, ADDDIR, DELDIR, ADDFILE, DELFILE, MODFILE, RENAME} type = NONE;
+		enum { NONE, BREAK, ADDDIR, DELDIR, ADDFILE, DELFILE, MODFILE, RENAME} type = NONE;
 		abufchar name;
 		abufchar dst;
 		bool isignore;
@@ -38,9 +38,10 @@ public:
 		//	} del;
 		//} param = { 0 };
 	};
-	int startRefresh();
+	int startRefresh(const std::vector<std::string> *initstep);
 	// return: 0: finished, >0: one step, <0: error
 	int refreshStep(int state, Action &action);
+	int refreshSave(std::vector<std::string> *step);
 	int perform(Action &action, Remote *remote);
 	//int addDir(const char *dir) { uint32_t did = 0;  return addDir(dir, strlen(dir), did); }
 	//int addFile(const char *file, Remote *remote) { uint32_t fid = 0;  return addFile(file, strlen(file), fid, remote); }
@@ -112,7 +113,8 @@ private:
 		uint32_t prog = 0;
 		std::vector<FsItem> files;
 	};
-	std::deque<RefreshIter> restate;
+	std::vector<RefreshIter> restate;	// current refresh status
+	std::vector<std::string> reinit;	// saved step of last unfinished refresh, to start with
 	std::map<std::string, int> failstate;	// record fail during refresh, for debugging
 	bool recordFail(const char *path)
 	{

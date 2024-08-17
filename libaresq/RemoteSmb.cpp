@@ -502,7 +502,7 @@ int RemoteSmb::putHist(const char *rbase, const char *path)
 		PELOG_ERROR_RETURN((PLV_WARNING, "HIST smb src not exist %s\n", rpath.c_str()), Aresq::OK);
 	else if (res != Aresq::OK)
 		PELOG_ERROR_RETURN((PLV_ERROR, "HIST smb failed %d %s\n", res, rpath.c_str()), Aresq::EPARAM);
-	PELOG_ERROR_RETURN((PLV_VERBOSE, "HIST smb done %s\n", histpath.c_str()), Aresq::OK);
+	PELOG_ERROR_RETURN((PLV_INFO, "HIST smb done %s\n", histpath.c_str()), Aresq::OK);
 }
 
 int RemoteSmb::moveFile(const char *oldpath, const char *newpath, bool force)

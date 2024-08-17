@@ -80,6 +80,7 @@
     <ClInclude Include="libsmb2\msvc\poll.h" />
     <ClInclude Include="pe_log.h" />
     <ClInclude Include="record.h" />
+    <ClInclude Include="Register.h" />
     <ClInclude Include="Remote.h" />
     <ClInclude Include="RemoteSmb.h" />
     <ClInclude Include="resguard.h" />
@@ -106,6 +107,7 @@
     <ClInclude Include="libsmb2\smb2-signing.h" />
     <ClInclude Include="libsmb2\smb2.h" />
     <ClInclude Include="libsmb2\smb3-seal.h" />
+    <ClInclude Include="sqlite3.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="utfconv.h" />
@@ -116,6 +118,7 @@
     <ClCompile Include="AresqIgnore.cpp" />
     <ClCompile Include="match.cpp" />
     <ClCompile Include="pe_log.cpp" />
+    <ClCompile Include="Register.cpp" />
     <ClCompile Include="Remote.cpp" />
     <ClCompile Include="RemoteSmb.cpp" />
     <ClCompile Include="Root.cpp" />
@@ -308,6 +311,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="libsmb2\usha.c">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="sqlite3.c">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
     </ClCompile>

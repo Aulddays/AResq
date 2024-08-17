@@ -134,6 +134,19 @@ int ListDir(const abufchar &u8dir, std::vector<FsItem> &items)
 		items.resize(items.size() + 1);
 		FsItem &item = items.back();
 		utf16to8(ffd.cFileName, item.name);
+		for (const char *p = item.name; *p; ++p)
+		{
+			if (*p == '\n' || *p == '/' || *p == '\\')
+			{
+				PELOG_LOG((PLV_WARNING, "Special char in name %s. drop\n", item.name.buf()));
+				item.name[0] = 0;
+			}
+		}
+		if (item.name[0] == 0)
+		{
+			items.pop_back();
+			continue;
+		}
 		item.size = ((uint64_t)ffd.nFileSizeHigh * (MAXDWORD + (uint64_t)1)) + ffd.nFileSizeLow;
 		item.isdir(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ? true : false);
 		item.time = (uint32_t)filetime2Timet(item.isdir() ? ffd.ftCreationTime : ffd.ftLastWriteTime);

@@ -3,6 +3,7 @@
 #include <stack>
 #include <algorithm>
 #include <map>
+#include <chrono>
 #include "Aresq.h"
 #include "fsadapter.h"
 #include "utfconv.h"
@@ -227,18 +228,25 @@ bool Root::verifydir(uint32_t pid) const
 	return true;
 }
 
-int Root::startRefresh()
+int Root::startRefresh(const std::vector<std::string> *initstep)
 {
 	restate.clear();
 	restate.resize(1);
 	restate.back().rid = 1;
 	failstate.clear();
+	if (initstep)
+		reinit = *initstep;
+	else
+		reinit.clear();
 	return 0;
 }
 
 // return: 0: finished, >0: one step, <0: error
 int Root::refreshStep(int state, Action &action)
 {
+	const auto tmstart = std::chrono::steady_clock::now();
+	size_t opnum = 0;
+
 	// TODO: do some cleanup if state is not OK
 	if (state != Aresq::OK)
 	{
@@ -305,12 +313,23 @@ int Root::refreshStep(int state, Action &action)
 	{
 		RefreshIter &reiter = restate.back();
 		RecordItem &rec = _records[reiter.rid];
+		if (opnum > 500 || opnum > 0 && reiter.stage == RefreshIter::INIT && reiter.rid != 1 && reinit.empty())
+		{
+			opnum = 0;
+			const auto tmnow = std::chrono::steady_clock::now();
+			const std::chrono::duration<double> tmcost = tmnow - tmstart;
+			if (tmcost.count() > 1)
+			{
+				action.type = Action::BREAK;	// take a break once in a while
+				return 1;
+			}
+		}
+		++opnum;
 		switch (reiter.stage)
 		{
 		case RefreshIter::INIT:
 		{
-			// store name
-			reiter.name.scopyFrom(rec.name(_rname));
+			//reiter.name.scopyFrom(rec.name(_rname));	// the name should have been stored on RECUR
 			AuVerify(rec.isdir() && rec.isactive() && (reiter.rid == 1 || *rec.name(_rname)));
 			// build path
 			std::vector<const char *> pathparts;
@@ -346,6 +365,37 @@ int Root::refreshStep(int state, Action &action)
 					i->isignore(true);
 				}
 			}
+			if (reinit.size() >= restate.size() && !reinit[restate.size() - 1].empty())	// has init step, skip to RECUR
+			{
+				// look for the step in record
+				size_t prog = rec.sub(), ifile = 0;
+				int cmp = 1;
+				while (prog != 0 && (!_records[prog].isdir() || _records[prog].isignore() ||
+						(cmp = pathCmpMt(_records[prog].name(_rname), reinit[restate.size() - 1].c_str())) < 0))
+					prog = _records[prog].islast() ? 0 : _records[prog].next();
+				if (cmp != 0)
+					prog = 0;
+				// look for the step in physical files
+				cmp = 1;
+				while (prog != 0 && ifile < reiter.files.size() &&
+						(!reiter.files[ifile].isdir() || reiter.files[ifile].isignore() ||
+						(cmp = pathCmpMt(reiter.files[ifile].name, reinit[restate.size() - 1].c_str())) < 0))
+					++ifile;
+				if (cmp != 0)
+					ifile = -1;
+				if (prog != 0 && ifile != -1)	// step item found, recur into it
+				{
+					reiter.stage = RefreshIter::RECUR;
+					reiter.prog = prog;
+					reinit[restate.size() - 1].clear();
+					if (restate.size() >= reinit.size())	// if have reached the deepest level
+						reinit.clear();
+					break;
+				}
+				PELOG_LOG((PLV_WARNING, "Refresh saved step not found %s\n", reinit[restate.size() - 1].c_str()));
+				reinit.clear();
+				break;
+			}
 			reiter.stage = RefreshIter::REMOVE;
 			reiter.prog = 0;
 			break;
@@ -373,6 +423,7 @@ int Root::refreshStep(int state, Action &action)
 			// for each rec file
 			for (; reiter.prog != 0; reiter.prog = _records[reiter.prog].islast() ? 0 : _records[reiter.prog].next())
 			{
+				++opnum;
 				RecordItem &fitem = _records[reiter.prog];
 				// look for the matched item in physical files for the rec file
 				while (fidx < reiter.files.size() && pathCmpMt(reiter.files[fidx].name, fitem.name(_rname)) < 0)
@@ -416,6 +467,7 @@ int Root::refreshStep(int state, Action &action)
 			uint32_t fid = rec.sub();
 			for (; reiter.prog < reiter.files.size(); ++reiter.prog)	// for each physical file
 			{
+				++opnum;
 				for (; fid != 0 && pathCmpMt(_records[fid].name(_rname), reiter.files[reiter.prog].name) < 0;
 					fid = _records[fid].islast() ? 0 : _records[fid].next())
 					;
@@ -456,13 +508,16 @@ int Root::refreshStep(int state, Action &action)
 				reiter.prog = _records[reiter.prog].islast() ? 0 : _records[reiter.prog].next();
 			if (reiter.prog != 0 && _records[reiter.prog].isdir() && !_records[reiter.prog].isignore())
 			{
+				++opnum;
 				uint32_t recurid = reiter.prog;
 				AuVerify(*getName(recurid));
 				reiter.prog = _records[reiter.prog].islast() ? 0 : _records[reiter.prog].next();
 				if (reiter.prog == 0)	// this is the last dir to recurse
 					reiter.stage = RefreshIter::RETURN;
+				// restate.resize() INVALIDATES reiter. should break ASAP
 				restate.resize(restate.size() + 1);
 				restate.back().rid = recurid;
+				restate.back().name.scopyFrom(_records[recurid].name(_rname));
 				break;
 			}
 			reiter.stage = RefreshIter::RETURN;
@@ -492,8 +547,17 @@ int Root::refreshStep(int state, Action &action)
 		default:
 			AuVerify(false);
 			break;
-		}
-	}
+		}	// switch (reiter.stage)
+		continue;	// should move to next round after `switch`
+	}	// while (true) // running
+	return 0;
+}
+
+int Root::refreshSave(std::vector<std::string> *step)
+{
+	step->clear();
+	for (size_t i = 1; i < restate.size(); ++i)
+		step->emplace_back(restate[i].name);
 	return 0;
 }
 
@@ -937,6 +1001,8 @@ int Root::perform(Action &action, Remote *remote)
 	uint32_t rid = 0;
 	switch (action.type)
 	{
+	case Action::BREAK:
+		return 0;
 	case Action::ADDDIR:
 		return addDir(action.name, strlen(action.name), action.isignore, rid, remote);
 	case Action::ADDFILE:

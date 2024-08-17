@@ -3,14 +3,16 @@
 #include <vector>
 #include <memory>
 #include <thread>
+#include <atomic>
 
 #include "pe_log.h"
 #include "Root.h"
 #include "Remote.h"
 #include "AresqIgnore.h"
-#include "libaresq/fsadapter.h"
-#include "libaresq/utfconv.h"
-#include "libaresq/RemoteSmb.h"
+#include "fsadapter.h"
+#include "utfconv.h"
+#include "RemoteSmb.h"
+#include "Register.h"
 
 class Aresq
 {
@@ -36,12 +38,14 @@ public:
 	int init(const std::string &datadir);
 
 	int run();
+	int stop() { PELOG_LOG((PLV_INFO, "To stop\n")); running.clear(); return 0; };
 
 	static std::string encpwd(const char *code);
 	static std::string decpwd(const char *code);
 
 private:
 	std::string recorddir;
+	Register regi;
 
 	struct Backup
 	{
@@ -58,5 +62,8 @@ private:
 
 	// ignore
 	std::unique_ptr<AresqIgnore> ignore;
+
+	// a flag to notify the worker to stop
+	std::atomic_flag running;
 };
 
