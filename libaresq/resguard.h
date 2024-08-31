@@ -15,7 +15,7 @@
 #include <stdio.h>
 
 // default deleter types for ResGuard
-template <class T>
+template <typename T>
 struct ResGuardDeleterTrait
 {
 	typedef void(*type)(T*);
@@ -27,16 +27,31 @@ struct ResGuardDeleterTrait<FILE>
 	typedef decltype(&fclose) type;	// match the prototype of fclose
 };
 
-template <class Res, class Deleter = ResGuardDeleterTrait<Res>::type>
+template <typename Res, typename Deleter = typename ResGuardDeleterTrait<Res>::type>
 class ResGuard
 {
-	ResGuard(const ResGuard&) = delete;
-	ResGuard& operator=(const ResGuard&) = delete;
+	// Disable copy
+	ResGuard(const ResGuard &) = delete;
+	ResGuard &operator =(const ResGuard &) = delete;
 protected:
 	Res *res;
 	Deleter deleter;
 public:
+	// construct with raw pointer and deleter
 	ResGuard(Res *r, Deleter d) : res(r), deleter(d) { }
+	// move
+	ResGuard(ResGuard &&r) { *this = std::move(r); }
+	ResGuard &operator =(ResGuard &&r)
+	{
+		if (this != &r)
+		{
+			release();
+			res = r.res;
+			r.res = NULL;
+			deleter = std::move(deleter);
+		}
+		return *this;
+	}
 
 	// Default deleters
 	// FILE => fclose
