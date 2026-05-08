@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include <mutex>
 #include "AresqIgnore.h"
 #include "fsadapter.h"
 #include "pe_log.h"
@@ -24,6 +25,7 @@ private:
 	std::string filename;
 	uint64_t filetime = 0;
 	uint64_t updatetime = 0;
+	std::mutex mutex;
 };
 
 IgnoreList::IgnoreList()
@@ -48,6 +50,11 @@ int IgnoreList::load(const char *ignorefilename)
 
 int IgnoreList::update(bool force /*= false*/)
 {
+	std::lock_guard<std::mutex> lock(mutex);
+	uint64_t curtime = time64(NULL);
+	if (!force  && curtime <= updatetime + 60 && curtime >= updatetime - 60)
+		return 0;
+
 	uint64_t ftime = 0;
 	uint64_t fsize = 0;
 	if (getFileAttr("", filename.c_str(), filename.length(), ftime, fsize) != 0)
@@ -58,7 +65,7 @@ int IgnoreList::update(bool force /*= false*/)
 	if (!force && ftime - 1 <= filetime && ftime + 1 >= filetime)
 		PELOG_LOG_RETURN((PLV_VERBOSE, "%s not modified\n", filename.c_str()), 0);
 
-	updatetime = time64(NULL);
+	updatetime = curtime;
 	FileHandle fp = OpenFile(filename.c_str(), _NCT("r"));
 	if (!fp)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot access %s\n", filename.c_str()), -2);

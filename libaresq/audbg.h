@@ -9,7 +9,7 @@
 #include <crtdbg.h>
 
 #ifndef _DEBUG
-#define _CrtDbgReport(_Expression)     ((void)0)
+#define _CrtDbgReport(_Expression, ...)     ((void)0)
 #endif
 
 #define AuVerify(_Expression) do { \

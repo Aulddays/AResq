@@ -54,6 +54,11 @@ public:
 	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen, bool isignore, bool keephist, bool noremote, Remote *remote);
 	int eraseName(uint32_t rid);
 
+	// Operations from watcher
+	int updateItem();
+	int delItem();
+	int renameItem();
+
 	// look for the specific name under pid, return rid if found, otherwise pre or parent id
 	// FindResult indicates whether the returned record id is matched or pre item
 	enum FindResult { FR_MATCH, FR_PRE, FR_PARENT, FR_NONE };

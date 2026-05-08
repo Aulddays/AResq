@@ -4,6 +4,7 @@
 #include <random>
 #include <algorithm>
 
+#include "resguard.h"
 #define LIBCONFIG_STATIC
 #include "libconfig/libconfig.h"
 
@@ -80,10 +81,11 @@ int Aresq::init(const std::string &datadir)
 	return 0;
 }
 
-int Aresq::run()
+int Aresq::refreshAll()
 {
-	if (running.test_and_set())
+	if (!running.try_set())
 		PELOG_ERROR_RETURN((PLV_ERROR, "Aresq already running\n"), -1);
+	ResGuard<AtomicFlag> running_guard(&running, [](AtomicFlag *a) { a->clear(); });
 
 	// Load refreshStep
 	std::string stepName;
@@ -139,9 +141,8 @@ int Aresq::run()
 				break;
 			state = root.perform(action, remote.get());
 
-			if (!running.test_and_set())	// if the `running` flag was cleared, stop
+			if (!running.get())	// if the `running` flag was cleared, stop
 			{
-				running.clear();
 				PELOG_LOG((PLV_INFO, "Stopping\n"));
 				root.refreshSave(&step);
 				if (!step.empty())
@@ -157,10 +158,9 @@ int Aresq::run()
 			}
 		}	// while (true)	// refreshSteps
 		AuAssert(root.verify());
-		if (!running.test_and_set())
+		if (!running.get())
 			break;
 	}	// for (std::unique_ptr<Backup> &backup : backups)
-	running.clear();
 	return 0;
 }
 

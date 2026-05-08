@@ -13,6 +13,7 @@
 #include "utfconv.h"
 #include "RemoteSmb.h"
 #include "Register.h"
+#include "utils.h"
 
 class Aresq
 {
@@ -37,7 +38,7 @@ public:
 
 	int init(const std::string &datadir);
 
-	int run();
+	int refreshAll();
 	int stop() { PELOG_LOG((PLV_INFO, "To stop\n")); running.clear(); return 0; };
 
 	static std::string encpwd(const char *code);
@@ -64,6 +65,6 @@ private:
 	std::unique_ptr<AresqIgnore> ignore;
 
 	// a flag to notify the worker to stop
-	std::atomic_flag running;
+	AtomicFlag running;
 };
 

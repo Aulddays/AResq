@@ -45,7 +45,7 @@ void sighdl(int code)
 	else if (code == SIGUSR1)
 	{
 		PELOG_LOG((PLV_TRACE, "SIGUSR1 received\n"));
-		apass.dumpStatus();
+		aresq.dumpStatus();
 	}
 }
 #endif
@@ -74,7 +74,7 @@ int main(int argc, char* argv[])
 	signal(SIGUSR1, sighdl);
 #endif
 
-	return aresq.run();
+	return aresq.refreshAll();
 }
 
 int doencdec(bool enc)
