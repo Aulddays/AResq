@@ -93,6 +93,9 @@
     <ProjectReference Include="..\libconfig\libconfig.vcxproj">
       <Project>{1a234565-926d-49b2-83e4-d56e0c38c9f2}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\libsmb2\libsmb2.vcxproj">
+      <Project>{4e830dbb-c75a-405b-b92b-783f4b9e5e94}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

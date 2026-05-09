@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include <time.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <algorithm>
@@ -17,10 +18,11 @@
 #include "Aresq.h"
 #include "auto_buf.hpp"
 #include "fsadapter.h"
-#include "libsmb2/smb2.h"
-#include "libsmb2/libsmb2.h"
+#include "libsmb2/include/smb2.h"
+#include "libsmb2/include/libsmb2.h"
 #ifdef _MSC_VER
-#	include "libsmb2/msvc/poll.h"
+#undef poll
+#define poll WSAPoll
 #	define snprintf _snprintf
 #endif
 
@@ -238,7 +240,7 @@ void onSmbPutChunk(struct smb2_context *smb2, int status, void *command_data, Sm
 	if (status == 0 || status != info->chunksize)
 		PELOG_ERROR_RETURNVOID((PLV_ERROR, "Upload smb failed 5\n"));
 	info->writesize += status;
-	PELOG_LOG((PLV_DEBUG, "smb put %d, %"PRIu64" / %"PRIu64" (%d%%). %s\n",
+	PELOG_LOG((PLV_DEBUG, "smb put %d, %" PRIu64 " / %" PRIu64 " (%d%%). %s\n",
 		status, info->writesize, info->totalsize,
 		(int)(std::min(info->writesize, info->totalsize) * 100 / info->totalsize),
 		info->name.c_str()));
@@ -314,7 +316,7 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 7 %d: %s\n", res, smb2_get_error(info.smb)), Aresq::DISCONNECTED);
 
 	if (info.status > 0)
-		PELOG_ERROR_RETURN((PLV_VERBOSE, "PUTDONE smb %"PRIu64" %s -> %s\n", info.realsize, lfile, rfile), Aresq::OK);
+		PELOG_ERROR_RETURN((PLV_VERBOSE, "PUTDONE smb %" PRIu64 " %s -> %s\n", info.realsize, lfile, rfile), Aresq::OK);
 	return Aresq::DISCONNECTED;
 }
 
