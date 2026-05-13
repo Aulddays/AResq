@@ -4,7 +4,6 @@
 #include <inttypes.h>
 #include <time.h>
 #include <stdio.h>
-#include <inttypes.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <algorithm>
@@ -21,13 +20,7 @@
 #include "libsmb2/include/smb2.h"
 #include "libsmb2/include/libsmb2.h"
 #ifdef _MSC_VER
-#undef poll
-#define poll WSAPoll
 #	define snprintf _snprintf
-#endif
-#if defined(__MINGW32__)
-#undef poll
-#define poll WSAPoll
 #endif
 
 class SmbHandle
@@ -197,14 +190,16 @@ int RemoteSmb::init(const char *server, const char *share, const char *user, con
 
 int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 {
-	FileHandle lfp = OpenFile(lfile, _NCT("rb"));
+	uint64_t ftime = 0;
+	uint64_t totalsize = 0;
+	if (getFileAttr("", lfile, strlen(lfile), ftime, totalsize) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot access %s\n", lfile), Aresq::INACCESIBLE);
+
+	FileHandle lfp = OpenFile(lfile, _NCT("rb"));	// open local
 	if (!lfp)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot read local file %s\n", lfile), Aresq::FILELOCKED);
-	fseek(lfp, 0, SEEK_END);
-	uint64_t totalsize = ftell(lfp);
-	fseek(lfp, 0, SEEK_SET);
 
-	std::unique_ptr<smb2fh, std::function<void(smb2fh *)>> rfp {
+	std::unique_ptr<smb2fh, std::function<void(smb2fh *)>> rfp {	// open remote
 		smb2_open(d->smb, rfile, O_WRONLY | O_CREAT),
 		[this](smb2fh *fp) { smb2_close(d->smb, fp); } };	// auto close smb file handle using unique_ptr
 	if (!rfp)
@@ -215,6 +210,7 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Cannot write smb remote file %s : %s \n", lfile, rfile), Aresq::EPARAM);
 	}
 
+	// write content
 	uint32_t chunksize = d->smb.getchunksize();
 	std::unique_ptr<uint8_t> buf(new uint8_t[chunksize]);
 	uint64_t readsize = 0, donesize = 0;
@@ -228,10 +224,14 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 		PELOG_LOG((PLV_DEBUG, "smb putchunk %d, %" PRIu64 " / %" PRIu64 " (%d%%). %s\n",
 			res, donesize, totalsize, (int)(std::min(donesize, totalsize) * 100 / totalsize), lfile));
 	}
-	rfp.reset();
-
 	if (donesize != totalsize)
 		PELOG_LOG((PLV_WARNING, "smb put size mismatch %" PRIu64 ":%" PRIu64 "\n", donesize, totalsize));
+
+	// set file time
+	smb2_timeval ftimeval { (time_t)ftime, 0 };
+	smb2_futimes(d->smb, rfp.get(), NULL, NULL, &ftimeval, NULL);
+
+	rfp.reset();
 	PELOG_LOG((PLV_VERBOSE, "PUTDONE smb %" PRIu64 " %s -> %s\n", totalsize, lfile, rfile));
 	return Aresq::OK;
 }
@@ -314,7 +314,9 @@ int RemoteSmb::addFile(const std::string &lfullpath, const std::string &rfullpat
 	{
 		uint64_t timestamp =
 			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-#pragma warning(suppress : 4996)
+#ifdef _MSC_VER
+#	pragma warning(suppress : 4996)
+#endif
 		int pid = getpid();
 		snprintf(tmpbuf, 32, "%" PRIu64 ".%d", timestamp, pid);
 	}

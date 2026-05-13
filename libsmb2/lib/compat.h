@@ -289,7 +289,9 @@ int getlogin_r(char *buf, size_t size);
 
 int getpid();
 
+#ifdef _MSC_VER
 #pragma warning( disable : 4090 ) 
+#endif
 
 #define strdup _strdup
 

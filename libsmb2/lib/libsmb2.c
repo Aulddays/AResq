@@ -2502,6 +2502,213 @@ smb2_ftruncate_async(struct smb2_context *smb2, struct smb2fh *fh,
         return 0;
 }
 
+static void
+fill_basic_info(struct smb2_file_basic_info *bi,
+                struct smb2_timeval *creation_time,
+                struct smb2_timeval *last_access_time,
+                struct smb2_timeval *last_write_time,
+                struct smb2_timeval *change_time)
+{
+        static const struct smb2_timeval zero = {0, 0};
+        bi->creation_time    = creation_time    ? *creation_time    : zero;
+        bi->last_access_time = last_access_time ? *last_access_time : zero;
+        bi->last_write_time  = last_write_time  ? *last_write_time  : zero;
+        bi->change_time      = change_time      ? *change_time      : zero;
+        bi->file_attributes  = 0;
+}
+
+static void
+futimes_cb_1(struct smb2_context *smb2, int status,
+             void *command_data _U_, void *private_data)
+{
+        struct create_cb_data *cb_data = private_data;
+
+        cb_data->cb(smb2, -nterror_to_errno(status),
+                    NULL, cb_data->cb_data);
+        free(cb_data);
+}
+
+int
+smb2_futimes_async(struct smb2_context *smb2, struct smb2fh *fh,
+                   struct smb2_timeval *creation_time,
+                   struct smb2_timeval *last_access_time,
+                   struct smb2_timeval *last_write_time,
+                   struct smb2_timeval *change_time,
+                   smb2_command_cb cb, void *cb_data)
+{
+        struct create_cb_data *create_data;
+        struct smb2_set_info_request req;
+        struct smb2_file_basic_info bi _U_;
+        struct smb2_pdu *pdu;
+
+        if (smb2 == NULL) {
+                return -EINVAL;
+        }
+        if (fh == NULL) {
+                smb2_set_error(smb2, "File handle was NULL");
+                return -EINVAL;
+        }
+
+        create_data = calloc(1, sizeof(struct create_cb_data));
+        if (create_data == NULL) {
+                smb2_set_error(smb2, "Failed to allocate create_data");
+                return -ENOMEM;
+        }
+
+        create_data->cb = cb;
+        create_data->cb_data = cb_data;
+
+        fill_basic_info(&bi, creation_time, last_access_time,
+                        last_write_time, change_time);
+
+        memset(&req, 0, sizeof(struct smb2_set_info_request));
+        req.info_type = SMB2_0_INFO_FILE;
+        req.file_info_class = SMB2_FILE_BASIC_INFORMATION;
+        req.additional_information = 0;
+        memcpy(req.file_id, fh->file_id, SMB2_FD_SIZE);
+        req.input_data = &bi;
+
+        pdu = smb2_cmd_set_info_async(smb2, &req, futimes_cb_1, create_data);
+        if (pdu == NULL) {
+                smb2_set_error(smb2, "Failed to create set info command");
+                free(create_data);
+                return -ENOMEM;
+        }
+        smb2_queue_pdu(smb2, pdu);
+
+        return 0;
+}
+
+struct utimes_cb_data {
+        smb2_command_cb cb;
+        void *cb_data;
+        uint32_t status;
+};
+
+static void
+utimes_cb_3(struct smb2_context *smb2, int status,
+            void *command_data _U_, void *private_data)
+{
+        struct utimes_cb_data *utimes_data = private_data;
+
+        if (utimes_data->status == SMB2_STATUS_SUCCESS) {
+                utimes_data->status = status;
+        }
+
+        utimes_data->cb(smb2, -nterror_to_errno(utimes_data->status),
+                        NULL, utimes_data->cb_data);
+        free(utimes_data);
+}
+
+static void
+utimes_cb_2(struct smb2_context *smb2, int status,
+            void *command_data _U_, void *private_data)
+{
+        struct utimes_cb_data *utimes_data = private_data;
+
+        if (utimes_data->status == SMB2_STATUS_SUCCESS) {
+                utimes_data->status = status;
+        }
+}
+
+static void
+utimes_cb_1(struct smb2_context *smb2, int status,
+            void *command_data _U_, void *private_data)
+{
+        struct utimes_cb_data *utimes_data = private_data;
+
+        if (utimes_data->status == SMB2_STATUS_SUCCESS) {
+                utimes_data->status = status;
+        }
+}
+
+int
+smb2_utimes_async(struct smb2_context *smb2, const char *path,
+                  struct smb2_timeval *creation_time,
+                  struct smb2_timeval *last_access_time,
+                  struct smb2_timeval *last_write_time,
+                  struct smb2_timeval *change_time,
+                  smb2_command_cb cb, void *cb_data)
+{
+        struct utimes_cb_data *utimes_data;
+        struct smb2_create_request cr_req;
+        struct smb2_set_info_request si_req;
+        struct smb2_close_request cl_req;
+        struct smb2_file_basic_info bi _U_;
+        struct smb2_pdu *pdu, *next_pdu;
+
+        if (smb2 == NULL) {
+                return -EINVAL;
+        }
+
+        utimes_data = calloc(1, sizeof(struct utimes_cb_data));
+        if (utimes_data == NULL) {
+                smb2_set_error(smb2, "Failed to allocate utimes_data");
+                return -ENOMEM;
+        }
+
+        utimes_data->cb = cb;
+        utimes_data->cb_data = cb_data;
+
+        /* CREATE command */
+        memset(&cr_req, 0, sizeof(struct smb2_create_request));
+        cr_req.requested_oplock_level = SMB2_OPLOCK_LEVEL_NONE;
+        cr_req.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
+        cr_req.desired_access = SMB2_FILE_WRITE_ATTRIBUTES;
+        cr_req.file_attributes = 0;
+        cr_req.share_access = SMB2_FILE_SHARE_READ | SMB2_FILE_SHARE_WRITE;
+        cr_req.create_disposition = SMB2_FILE_OPEN;
+        cr_req.create_options = 0;
+        cr_req.name = path;
+
+        pdu = smb2_cmd_create_async(smb2, &cr_req, utimes_cb_1, utimes_data);
+        if (pdu == NULL) {
+                smb2_set_error(smb2, "Failed to create create command");
+                free(utimes_data);
+                return -EINVAL;
+        }
+
+        /* SET INFO command */
+        fill_basic_info(&bi, creation_time, last_access_time,
+                        last_write_time, change_time);
+
+        memset(&si_req, 0, sizeof(struct smb2_set_info_request));
+        si_req.info_type = SMB2_0_INFO_FILE;
+        si_req.file_info_class = SMB2_FILE_BASIC_INFORMATION;
+        si_req.additional_information = 0;
+        memcpy(si_req.file_id, compound_file_id, SMB2_FD_SIZE);
+        si_req.input_data = &bi;
+
+        next_pdu = smb2_cmd_set_info_async(smb2, &si_req,
+                                           utimes_cb_2, utimes_data);
+        if (next_pdu == NULL) {
+                smb2_set_error(smb2, "Failed to create set info command. %s",
+                               smb2_get_error(smb2));
+                free(utimes_data);
+                smb2_free_pdu(smb2, pdu);
+                return -EINVAL;
+        }
+        smb2_add_compound_pdu(smb2, pdu, next_pdu);
+
+        /* CLOSE command */
+        memset(&cl_req, 0, sizeof(struct smb2_close_request));
+        cl_req.flags = SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB;
+        memcpy(cl_req.file_id, compound_file_id, SMB2_FD_SIZE);
+
+        next_pdu = smb2_cmd_close_async(smb2, &cl_req, utimes_cb_3, utimes_data);
+        if (next_pdu == NULL) {
+                utimes_data->cb(smb2, -ENOMEM, NULL, utimes_data->cb_data);
+                free(utimes_data);
+                smb2_free_pdu(smb2, pdu);
+                return -EINVAL;
+        }
+        smb2_add_compound_pdu(smb2, pdu, next_pdu);
+
+        smb2_queue_pdu(smb2, pdu);
+
+        return 0;
+}
+
 struct readlink_cb_data {
         smb2_command_cb cb;
         void *cb_data;

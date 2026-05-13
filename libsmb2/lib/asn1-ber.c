@@ -978,7 +978,7 @@ static int asn1ber_ber_from_single_oid(struct asn1ber_context *actx, beroid_type
 
 int asn1ber_ber_from_oid(struct asn1ber_context *actx, const struct asn1ber_oid_value *oid)
 {
-    int lenpos;
+    int lenpos = 0;
     int reserve;
     int oiddex;
     int result;

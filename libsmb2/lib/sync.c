@@ -781,6 +781,78 @@ int smb2_ftruncate(struct smb2_context *smb2, struct smb2fh *fh,
 	return rc;
 }
 
+int smb2_utimes(struct smb2_context *smb2, const char *path,
+                struct smb2_timeval *creation_time,
+                struct smb2_timeval *last_access_time,
+                struct smb2_timeval *last_write_time,
+                struct smb2_timeval *change_time)
+{
+        struct sync_cb_data *cb_data;
+        int rc = 0;
+
+        cb_data = calloc(1, sizeof(struct sync_cb_data));
+        if (cb_data == NULL) {
+                smb2_set_error(smb2, "Failed to allocate sync_cb_data");
+                return -ENOMEM;
+        }
+
+        rc = smb2_utimes_async(smb2, path,
+                               creation_time, last_access_time,
+                               last_write_time, change_time,
+                               sync_generic_status_cb, cb_data);
+        if (rc < 0) {
+                goto out;
+        }
+
+        rc = wait_for_reply(smb2, cb_data);
+        if (rc < 0) {
+                cb_data->status = SMB2_STATUS_CANCELLED;
+                return rc;
+        }
+
+        rc = cb_data->status;
+ out:
+        free(cb_data);
+
+        return rc;
+}
+
+int smb2_futimes(struct smb2_context *smb2, struct smb2fh *fh,
+                 struct smb2_timeval *creation_time,
+                 struct smb2_timeval *last_access_time,
+                 struct smb2_timeval *last_write_time,
+                 struct smb2_timeval *change_time)
+{
+        struct sync_cb_data *cb_data;
+        int rc = 0;
+
+        cb_data = calloc(1, sizeof(struct sync_cb_data));
+        if (cb_data == NULL) {
+                smb2_set_error(smb2, "Failed to allocate sync_cb_data");
+                return -ENOMEM;
+        }
+
+        rc = smb2_futimes_async(smb2, fh,
+                                creation_time, last_access_time,
+                                last_write_time, change_time,
+                                sync_generic_status_cb, cb_data);
+        if (rc < 0) {
+                goto out;
+        }
+
+        rc = wait_for_reply(smb2, cb_data);
+        if (rc < 0) {
+                cb_data->status = SMB2_STATUS_CANCELLED;
+                return rc;
+        }
+
+        rc = cb_data->status;
+ out:
+        free(cb_data);
+
+        return rc;
+}
+
 struct sync_readlink_cb_data {
 	char *buf;
         int len;

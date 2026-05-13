@@ -384,7 +384,7 @@ int Root::refreshStep(int state, Action &action)
 					++ifile;
 				if (cmp != 0)
 					ifile = -1;
-				if (prog != 0 && ifile != -1)	// step item found, recur into it
+				if (prog != 0 && ifile != (decltype(ifile))-1)	// step item found, recur into it
 				{
 					reiter.stage = RefreshIter::RECUR;
 					reiter.prog = prog;
@@ -1013,6 +1013,8 @@ int Root::perform(Action &action, Remote *remote)
 		return delDir(action.name, strlen(action.name), action.isignore, action.keephist, false, remote);
 	case Action::DELFILE:
 		return delFile(action.name, strlen(action.name), action.isignore, action.keephist, false, remote);
+	default:
+		break;
 	}
 	PELOG_ERROR_RETURN((PLV_WARNING, "Unsupported action %d\n", action.type), Aresq::NOTIMPLEMENTED);
 }

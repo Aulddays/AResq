@@ -56,6 +56,8 @@
 #include <sys/unistd.h>
 #endif
 
+#include "compat.h"
+
 #include <ctype.h>
 #include "portable-endian.h"
 #include <stdio.h>
@@ -67,8 +69,6 @@
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
-
-#include "compat.h"
 
 #include "slist.h"
 #include "smb2.h"

@@ -1213,6 +1213,68 @@ int smb2_ftruncate_async(struct smb2_context *smb2, struct smb2fh *fh,
 int smb2_ftruncate(struct smb2_context *smb2, struct smb2fh *fh,
                    uint64_t length);
 
+/*
+ * Async utimes() - set file timestamps by path.
+ * Any of the four timeval pointers may be NULL to leave that field unchanged.
+ *
+ * Returns
+ *  0     : The operation was initiated. Result of the operation will be
+ *          reported through the callback function.
+ * -errno : There was an error. The callback function will not be invoked.
+ *
+ * When the callback is invoked, status indicates the result:
+ *      0 : Success.
+ * -errno : An error occurred.
+ */
+int smb2_utimes_async(struct smb2_context *smb2, const char *path,
+                      struct smb2_timeval *creation_time,
+                      struct smb2_timeval *last_access_time,
+                      struct smb2_timeval *last_write_time,
+                      struct smb2_timeval *change_time,
+                      smb2_command_cb cb, void *cb_data);
+/*
+ * Sync utimes()
+ * Function returns
+ *      0 : Success
+ * -errno : An error occurred.
+ */
+int smb2_utimes(struct smb2_context *smb2, const char *path,
+                struct smb2_timeval *creation_time,
+                struct smb2_timeval *last_access_time,
+                struct smb2_timeval *last_write_time,
+                struct smb2_timeval *change_time);
+
+/*
+ * Async futimes() - set file timestamps by file handle.
+ * Any of the four timeval pointers may be NULL to leave that field unchanged.
+ *
+ * Returns
+ *  0     : The operation was initiated. Result of the operation will be
+ *          reported through the callback function.
+ * -errno : There was an error. The callback function will not be invoked.
+ *
+ * When the callback is invoked, status indicates the result:
+ *      0 : Success.
+ * -errno : An error occurred.
+ */
+int smb2_futimes_async(struct smb2_context *smb2, struct smb2fh *fh,
+                       struct smb2_timeval *creation_time,
+                       struct smb2_timeval *last_access_time,
+                       struct smb2_timeval *last_write_time,
+                       struct smb2_timeval *change_time,
+                       smb2_command_cb cb, void *cb_data);
+/*
+ * Sync futimes()
+ * Function returns
+ *      0 : Success
+ * -errno : An error occurred.
+ */
+int smb2_futimes(struct smb2_context *smb2, struct smb2fh *fh,
+                 struct smb2_timeval *creation_time,
+                 struct smb2_timeval *last_access_time,
+                 struct smb2_timeval *last_write_time,
+                 struct smb2_timeval *change_time);
+
 
 /*
  * READLINK

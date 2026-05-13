@@ -124,7 +124,7 @@ public:
 	}
 	void clear()
 	{
-		for (int i = 0; i < sizeof(_data); ++i)
+		for (size_t i = 0; i < sizeof(_data); ++i)
 			_data[i] = 0;
 	}
 };

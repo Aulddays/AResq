@@ -18,8 +18,8 @@ typedef char NCHART;
 #	define ftell ftello
 #	define fseek fseeko
 static_assert(sizeof(off_t) >= 8, "Missing large file support");
-static_assert(sizeof(time_t) >= 8, "Missing 64-bit time support");
 #endif
+static_assert(sizeof(time_t) >= 8, "Missing 64-bit time support");
 
 void Utf8toNchar(const char *utf8, abuf<NCHART> &ncs);
 

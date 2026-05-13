@@ -56,10 +56,10 @@
 #include <sys/unistd.h>
 #endif
 
+#include "compat.h"
+
 #include "portable-endian.h"
 #include <errno.h>
-
-#include "compat.h"
 
 #include <stdio.h>
 #include "smb2.h"

@@ -30,6 +30,7 @@ public:
 		EINTERNAL = -7,	// internal error
 		ECANCELE = -8,
 		FILELOCKED = -9,		// file exists but failed to read
+		INACCESIBLE = -10,	// file or dir inaccessible
 	};
 
 public:

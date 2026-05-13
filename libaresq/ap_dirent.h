@@ -93,7 +93,9 @@
 #include <sys/stat.h>
 #include <errno.h>
 
-#pragma comment(lib, "Shlwapi.lib")
+#ifdef _MSC_VER
+#	pragma comment(lib, "Shlwapi.lib")
+#endif
 
 /* Entries missing from MSVC 6.0 */
 #if !defined(FILE_ATTRIBUTE_DEVICE)
@@ -111,7 +113,9 @@
 # define S_IWRITE _S_IWRITE                    /* write permission */
 # define S_IEXEC  _S_IEXEC                     /* execute permission */
 #endif
+#ifndef S_IFBLK
 #define S_IFBLK   0                            /* block device */
+#endif
 #define S_IFLNK   0                            /* link */
 #define S_IFSOCK  0                            /* socket */
 
@@ -149,6 +153,7 @@
  * only defined for compatibility.  These macros should always return false
  * on Windows.
  */
+#ifndef S_ISFIFO
 #define	S_ISFIFO(mode) (((mode) & S_IFMT) == S_IFFIFO)
 #define	S_ISDIR(mode)  (((mode) & S_IFMT) == S_IFDIR)
 #define	S_ISREG(mode)  (((mode) & S_IFMT) == S_IFREG)
@@ -156,6 +161,7 @@
 #define	S_ISSOCK(mode) (((mode) & S_IFMT) == S_IFSOCK)
 #define	S_ISCHR(mode)  (((mode) & S_IFMT) == S_IFCHR)
 #define	S_ISBLK(mode)  (((mode) & S_IFMT) == S_IFBLK)
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -164,19 +170,19 @@ extern "C" {
 
 typedef struct dirent
 {
-   char d_name[MAX_PATH + 1];                  /* File name */
-   size_t d_namlen;                            /* Length of name without \0 */
-   int d_type;                                 /* File type */
+	char d_name[MAX_PATH + 1];                  /* File name */
+	size_t d_namlen;                            /* Length of name without \0 */
+	int d_type;                                 /* File type */
 } dirent;
 
 
 typedef struct DIR
 {
-   dirent           curentry;                  /* Current directory entry */
-   WIN32_FIND_DATAA find_data;                 /* Private file data */
-   int              cached;                    /* True if data is valid */
-   HANDLE           search_handle;             /* Win32 search handle */
-   char             patt[MAX_PATH + 3];        /* Initial directory name */
+	dirent           curentry;                  /* Current directory entry */
+	WIN32_FIND_DATAA find_data;                 /* Private file data */
+	int              cached;                    /* True if data is valid */
+	HANDLE           search_handle;             /* Win32 search handle */
+	char             patt[MAX_PATH + 3];        /* Initial directory name */
 } DIR;
 
 
@@ -209,63 +215,63 @@ static void rewinddir(DIR* dirp);
  */
 static DIR *opendir(const char *dirname)
 {
-   DIR *dirp;
+	DIR *dirp;
 
-   /* ensure that the resulting search pattern will be a valid file name */
-   if (dirname == NULL) {
-      DIRENT_SET_ERRNO (ENOENT);
-      return NULL;
-   }
-   if (strlen (dirname) + 3 >= MAX_PATH) {
-      DIRENT_SET_ERRNO (ENAMETOOLONG);
-      return NULL;
-   }
+	/* ensure that the resulting search pattern will be a valid file name */
+	if (dirname == NULL) {
+		DIRENT_SET_ERRNO (ENOENT);
+		return NULL;
+	}
+	if (strlen (dirname) + 3 >= MAX_PATH) {
+		DIRENT_SET_ERRNO (ENAMETOOLONG);
+		return NULL;
+	}
 
-   /* construct new DIR structure */
-   dirp = (DIR*) malloc (sizeof (struct DIR));
-   if (dirp != NULL) {
-      int error;
+	/* construct new DIR structure */
+	dirp = (DIR*) malloc (sizeof (struct DIR));
+	if (dirp != NULL) {
+		int error;
 
-      /*
-       * Convert relative directory name to an absolute one.  This
-       * allows rewinddir() to function correctly when the current working
-       * directory is changed between opendir() and rewinddir().
-       */
-      if (GetFullPathNameA (dirname, MAX_PATH, dirp->patt, NULL)) {
-         char *p;
+		/*
+		 * Convert relative directory name to an absolute one.  This
+		 * allows rewinddir() to function correctly when the current working
+		 * directory is changed between opendir() and rewinddir().
+		 */
+		if (GetFullPathNameA (dirname, MAX_PATH, dirp->patt, NULL)) {
+			char *p;
 
-         /* append the search pattern "\\*\0" to the directory name */
-         p = strchr (dirp->patt, '\0');
-         if (dirp->patt < p  &&  *(p-1) != '\\'  &&  *(p-1) != ':') {
-           *p++ = '\\';
-         }
-         *p++ = '*';
-         *p = '\0';
+			/* append the search pattern "\\*\0" to the directory name */
+			p = strchr (dirp->patt, '\0');
+			if (dirp->patt < p  &&  *(p-1) != '\\'  &&  *(p-1) != ':') {
+			  *p++ = '\\';
+			}
+			*p++ = '*';
+			*p = '\0';
 
-         /* open directory stream and retrieve the first entry */
-         dirp->search_handle = FindFirstFileA (dirp->patt, &dirp->find_data);
-         if (dirp->search_handle != INVALID_HANDLE_VALUE) {
-            /* a directory entry is now waiting in memory */
-            dirp->cached = 1;
-            error = 0;
-         } else {
-            /* search pattern is not a directory name? */
-            DIRENT_SET_ERRNO (ENOENT);
-            error = 1;
-         }
-      } else {
-         /* buffer too small */
-         DIRENT_SET_ERRNO (ENOMEM);
-         error = 1;
-      }
+			/* open directory stream and retrieve the first entry */
+			dirp->search_handle = FindFirstFileA (dirp->patt, &dirp->find_data);
+			if (dirp->search_handle != INVALID_HANDLE_VALUE) {
+				/* a directory entry is now waiting in memory */
+				dirp->cached = 1;
+				error = 0;
+			} else {
+				/* search pattern is not a directory name? */
+				DIRENT_SET_ERRNO (ENOENT);
+				error = 1;
+			}
+		} else {
+			/* buffer too small */
+			DIRENT_SET_ERRNO (ENOMEM);
+			error = 1;
+		}
 
-      if (error) {
-         free (dirp);
-         dirp = NULL;
-      }
-   }
+		if (error) {
+			free (dirp);
+			dirp = NULL;
+		}
+	}
 
-   return dirp;
+	return dirp;
 }
 
 
@@ -278,49 +284,49 @@ static DIR *opendir(const char *dirname)
  */
 static struct dirent *readdir(DIR *dirp)
 {
-   DWORD attr;
-   if (dirp == NULL) {
-      /* directory stream did not open */
-      DIRENT_SET_ERRNO (EBADF);
-      return NULL;
-   }
+	DWORD attr;
+	if (dirp == NULL) {
+		/* directory stream did not open */
+		DIRENT_SET_ERRNO (EBADF);
+		return NULL;
+	}
 
-   /* get next directory entry */
-   if (dirp->cached != 0) {
-      /* a valid directory entry already in memory */
-      dirp->cached = 0;
-   } else {
-      /* get the next directory entry from stream */
-      if (dirp->search_handle == INVALID_HANDLE_VALUE) {
-         return NULL;
-      }
-      if (FindNextFileA (dirp->search_handle, &dirp->find_data) == FALSE) {
-         /* the very last entry has been processed or an error occured */
-         FindClose (dirp->search_handle);
-         dirp->search_handle = INVALID_HANDLE_VALUE;
-         return NULL;
-      }
-   }
+	/* get next directory entry */
+	if (dirp->cached != 0) {
+		/* a valid directory entry already in memory */
+		dirp->cached = 0;
+	} else {
+		/* get the next directory entry from stream */
+		if (dirp->search_handle == INVALID_HANDLE_VALUE) {
+			return NULL;
+		}
+		if (FindNextFileA (dirp->search_handle, &dirp->find_data) == FALSE) {
+			/* the very last entry has been processed or an error occured */
+			FindClose (dirp->search_handle);
+			dirp->search_handle = INVALID_HANDLE_VALUE;
+			return NULL;
+		}
+	}
 
-   /* copy as a multibyte character string */
-   DIRENT_STRNCPY ( dirp->curentry.d_name,
-             dirp->find_data.cFileName,
-             sizeof(dirp->curentry.d_name) );
-   dirp->curentry.d_name[MAX_PATH] = '\0';
+	/* copy as a multibyte character string */
+	DIRENT_STRNCPY ( dirp->curentry.d_name,
+				 dirp->find_data.cFileName,
+				 sizeof(dirp->curentry.d_name) );
+	dirp->curentry.d_name[MAX_PATH] = '\0';
 
-   /* compute the length of name */
-   dirp->curentry.d_namlen = strlen (dirp->curentry.d_name);
+	/* compute the length of name */
+	dirp->curentry.d_namlen = strlen (dirp->curentry.d_name);
 
-   /* determine file type */
-   attr = dirp->find_data.dwFileAttributes;
-   if ((attr & FILE_ATTRIBUTE_DEVICE) != 0) {
-      dirp->curentry.d_type = DT_CHR;
-   } else if ((attr & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-      dirp->curentry.d_type = DT_DIR;
-   } else {
-      dirp->curentry.d_type = DT_REG;
-   }
-   return &dirp->curentry;
+	/* determine file type */
+	attr = dirp->find_data.dwFileAttributes;
+	if ((attr & FILE_ATTRIBUTE_DEVICE) != 0) {
+		dirp->curentry.d_type = DT_CHR;
+	} else if ((attr & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+		dirp->curentry.d_type = DT_DIR;
+	} else {
+		dirp->curentry.d_type = DT_REG;
+	}
+	return &dirp->curentry;
 }
 
 
@@ -331,21 +337,21 @@ static struct dirent *readdir(DIR *dirp)
  */
 static int closedir(DIR *dirp)
 {
-   if (dirp == NULL) {
-      /* invalid directory stream */
-      DIRENT_SET_ERRNO (EBADF);
-      return -1;
-   }
+	if (dirp == NULL) {
+		/* invalid directory stream */
+		DIRENT_SET_ERRNO (EBADF);
+		return -1;
+	}
 
-   /* release search handle */
-   if (dirp->search_handle != INVALID_HANDLE_VALUE) {
-      FindClose (dirp->search_handle);
-      dirp->search_handle = INVALID_HANDLE_VALUE;
-   }
+	/* release search handle */
+	if (dirp->search_handle != INVALID_HANDLE_VALUE) {
+		FindClose (dirp->search_handle);
+		dirp->search_handle = INVALID_HANDLE_VALUE;
+	}
 
-   /* release directory structure */
-   free (dirp);
-   return 0;
+	/* release directory structure */
+	free (dirp);
+	return 0;
 }
 
 
@@ -358,22 +364,22 @@ static int closedir(DIR *dirp)
  */
 static void rewinddir(DIR* dirp)
 {
-   if (dirp != NULL) {
-      /* release search handle */
-      if (dirp->search_handle != INVALID_HANDLE_VALUE) {
-         FindClose (dirp->search_handle);
-      }
+	if (dirp != NULL) {
+		/* release search handle */
+		if (dirp->search_handle != INVALID_HANDLE_VALUE) {
+			FindClose (dirp->search_handle);
+		}
 
-      /* open new search handle and retrieve the first entry */
-      dirp->search_handle = FindFirstFileA (dirp->patt, &dirp->find_data);
-      if (dirp->search_handle != INVALID_HANDLE_VALUE) {
-         /* a directory entry is now waiting in memory */
-         dirp->cached = 1;
-      } else {
-         /* failed to re-open directory: no directory entry in memory */
-         dirp->cached = 0;
-      }
-   }
+		/* open new search handle and retrieve the first entry */
+		dirp->search_handle = FindFirstFileA (dirp->patt, &dirp->find_data);
+		if (dirp->search_handle != INVALID_HANDLE_VALUE) {
+			/* a directory entry is now waiting in memory */
+			dirp->cached = 1;
+		} else {
+			/* failed to re-open directory: no directory entry in memory */
+			dirp->cached = 0;
+		}
+	}
 }
 
 char *dirname(char *path)
