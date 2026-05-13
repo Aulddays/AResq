@@ -17,6 +17,9 @@
 */
 
 #include "config-msvc.h"
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 #include "compat.h"
 
 #if defined(_WINDOWS) || defined(_WIN32) || defined(_XBOX)

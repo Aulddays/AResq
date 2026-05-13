@@ -43,7 +43,7 @@ int Aresq::init(const std::string &datadir)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Error opening register\n"), -1);
 
 	// AresqIgnore
-	ignore = std::make_unique<AresqIgnore>();
+	ignore = std::unique_ptr<AresqIgnore>(new AresqIgnore());
 	if (ignore->loadglobal((datadir + '/' + "aresqignore").c_str(), true) != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Global ignore file %s failed\n", (datadir + '/' + "aresqignore").c_str()), -1);
 

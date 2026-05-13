@@ -26,7 +26,7 @@ public:
 class AtomicFlag
 {
 private:
-	std::atomic<bool> val = false;
+	std::atomic<bool> val{false};
 public:
 	bool try_set()
 	{

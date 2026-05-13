@@ -174,7 +174,7 @@ private:
 	inline const char *getName(const RecordItem &rec) const { return rec.name(_rname); }
 
 	// records operations
-	uint32_t allocRName(const char *name, size_t len);	// alloc string in _rname, and write to disk
+	uint32_t allocRName(const char *name, uint32_t len);	// alloc string in _rname, and write to disk
 	uint32_t allocRec(std::vector<uint32_t> &cids);		// alloc a new item in _record. change in memory only, use writeRec() to write to disk
 	int recycleRec(uint32_t rid, std::vector<uint32_t> &cids);
 	int writeRec(std::vector<uint32_t> &cids);	// write back records to file

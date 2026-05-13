@@ -25,6 +25,10 @@
 #define poll WSAPoll
 #	define snprintf _snprintf
 #endif
+#if defined(__MINGW32__)
+#undef poll
+#define poll WSAPoll
+#endif
 
 class SmbHandle
 {
@@ -191,133 +195,45 @@ int RemoteSmb::init(const char *server, const char *share, const char *user, con
 	return Aresq::OK;
 }
 
-class SmbFile
-{
-	smb2fh *fp;
-	smb2_context *smb;
-public:
-	SmbFile(smb2_context *smb2 = NULL) : fp(NULL), smb(smb2){}
-	void setSmb(smb2_context *smb2) { smb = smb2; }
-	void close() { if (fp) smb2_close(smb, fp); fp = NULL; }
-	smb2fh *operator =(smb2fh *r) { close(); fp = r; return fp; }
-	operator smb2fh *() { return fp; }
-};
-
-struct SmbPutInfo
-{
-	int status = 0;
-	smb2_context *smb = NULL;
-	std::string name;
-	FileHandle lfp;
-	SmbFile rfp;
-	uint64_t totalsize = 0;
-	uint64_t writesize = 0;
-	uint64_t realsize = 0;
-	size_t chunksize = 0;
-	size_t max_chunksize = 0;
-	int *signal = NULL;
-	abuf<char> buf;
-};
-
-inline size_t roundChunk(size_t size, size_t maxsize)
-{
-	if (maxsize >= 1024)
-		return (size + (1024 - 1)) & ~((size_t)(1024 - 1));
-	if (maxsize < 2)
-		return size;
-	while ((maxsize & (maxsize - 1)) != 0)
-		maxsize = maxsize & (maxsize - 1);
-	return (size + (maxsize - 1)) & ~((size_t)(maxsize - 1));
-}
-
-void onSmbPutChunk(struct smb2_context *smb2, int status, void *command_data, SmbPutInfo *info)
-{
-	if (status < 0)
-	{
-		info->status = status;
-		PELOG_ERROR_RETURNVOID((PLV_ERROR, "Upload smb failed 4 %d\n", status));
-	}
-	if (status == 0 || status != info->chunksize)
-		PELOG_ERROR_RETURNVOID((PLV_ERROR, "Upload smb failed 5\n"));
-	info->writesize += status;
-	PELOG_LOG((PLV_DEBUG, "smb put %d, %" PRIu64 " / %" PRIu64 " (%d%%). %s\n",
-		status, info->writesize, info->totalsize,
-		(int)(std::min(info->writesize, info->totalsize) * 100 / info->totalsize),
-		info->name.c_str()));
-	info->chunksize = fread(info->buf, 1, info->buf.size(), info->lfp);
-	AuVerify(info->writesize == info->realsize || info->chunksize == 0);		// writesize != realsize only occurs when last chunk has just been put
-	if (info->chunksize == 0)	// no more data
-	{
-		info->status = 1;
-		return;
-	}
-	info->realsize += info->chunksize;
-	info->chunksize = roundChunk(info->chunksize, info->max_chunksize);	// Some server may fail on certain chunksizes. write extra data and truncate as workaround
-	int res = 0;
-	if ((res = smb2_pwrite_async(info->smb, info->rfp, (const uint8_t *)info->buf.buf(), info->chunksize,
-		info->writesize, (smb2_command_cb)onSmbPutChunk, info)) < 0)
-	{
-		info->status = res;
-		PELOG_ERROR_RETURNVOID((PLV_ERROR, "Upload smb failed 6 %d\n", res));
-	}
-}
-
-
 int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 {
-	SmbPutInfo info;
-	info.smb = d->smb;
-	info.max_chunksize = d->smb.getchunksize();
-	info.name = lfile;
+	FileHandle lfp = OpenFile(lfile, _NCT("rb"));
+	if (!lfp)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot read local file %s\n", lfile), Aresq::FILELOCKED);
+	fseek(lfp, 0, SEEK_END);
+	uint64_t totalsize = ftell(lfp);
+	fseek(lfp, 0, SEEK_SET);
 
-	int res = 0;
-	if (!(info.lfp = OpenFile(lfile, _NCT("rb"))))
-		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot read smb file %s\n", lfile), Aresq::FILELOCKED);
-	fseek(info.lfp, 0, SEEK_END);
-	info.totalsize = ftell(info.lfp);
-	fseek(info.lfp, 0, SEEK_SET);
-	info.rfp.setSmb(info.smb);
-	if (!(info.rfp = smb2_open(info.smb, rfile, O_WRONLY | O_CREAT)))
+	std::unique_ptr<smb2fh, std::function<void(smb2fh *)>> rfp {
+		smb2_open(d->smb, rfile, O_WRONLY | O_CREAT),
+		[this](smb2fh *fp) { smb2_close(d->smb, fp); } };	// auto close smb file handle using unique_ptr
+	if (!rfp)
 	{
 		// create file failed. try some house keeping
 		const char *dirsep = strrchr(rfile, '/');
-		if (!dirsep || addDir(std::string(rfile, dirsep)) < 0 || !(info.rfp = smb2_open(info.smb, rfile, O_WRONLY | O_CREAT)))
+		if (!dirsep || addDir(std::string(rfile, dirsep)) < 0 || !(rfp.reset(smb2_open(d->smb, rfile, O_WRONLY | O_CREAT)), rfp))
 			PELOG_ERROR_RETURN((PLV_ERROR, "Cannot write smb remote file %s : %s \n", lfile, rfile), Aresq::EPARAM);
 	}
 
-	info.buf.resize(info.max_chunksize);
-	info.chunksize = fread(info.buf, 1, info.buf.size(), info.lfp);
-	info.realsize = info.chunksize;
-	info.chunksize = roundChunk(info.chunksize, info.max_chunksize);	// Some server may fail on certain chunksizes. write extra data and the truncate as workaround
-	if (info.realsize < info.chunksize)
-		memset(info.buf + info.realsize, 0, info.chunksize - (size_t)info.realsize);
-	if (info.chunksize == 0)
-		info.status = 1;
-	else if ((res = smb2_pwrite_async(d->smb, info.rfp, (const uint8_t *)info.buf.buf(), info.chunksize,
-			info.writesize, (smb2_command_cb)onSmbPutChunk, &info)) < 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 1 %d\n", res), Aresq::DISCONNECTED);
-
-	while (info.status == 0)
+	uint32_t chunksize = d->smb.getchunksize();
+	std::unique_ptr<uint8_t> buf(new uint8_t[chunksize]);
+	uint64_t readsize = 0, donesize = 0;
+	while ((readsize = fread(buf.get(), 1, chunksize, lfp)) > 0)
 	{
-		pollfd pfd = { 0 };
-		pfd.fd = smb2_get_fd(info.smb);
-		pfd.events = smb2_which_events(info.smb);
-		if ((res = poll(&pfd, 1, 1000)) < 0)
-			PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 2 %d\n", res), Aresq::DISCONNECTED);
-		if (pfd.revents == 0)
-			continue;
-		if ((res = smb2_service(info.smb, pfd.revents)) < 0)
-			PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 3 %d: %s\n", res, smb2_get_error(info.smb)), Aresq::DISCONNECTED);
+		int res = smb2_write(d->smb, rfp.get(), buf.get(), readsize);
+		if (res < 0)
+			PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed (%" PRIu64 ":%" PRIu64 ") %d\n",
+				donesize, totalsize, res), Aresq::DISCONNECTED);
+		donesize += res;
+		PELOG_LOG((PLV_DEBUG, "smb putchunk %d, %" PRIu64 " / %" PRIu64 " (%d%%). %s\n",
+			res, donesize, totalsize, (int)(std::min(donesize, totalsize) * 100 / totalsize), lfile));
 	}
+	rfp.reset();
 
-	info.rfp.close();
-	// always truncate, even if no extra data were written, in case of larger version of this file already exists
-	if (info.status > 0 && (res = smb2_truncate(info.smb, rfile, info.realsize)) < 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "Upload smb failed 7 %d: %s\n", res, smb2_get_error(info.smb)), Aresq::DISCONNECTED);
-
-	if (info.status > 0)
-		PELOG_ERROR_RETURN((PLV_VERBOSE, "PUTDONE smb %" PRIu64 " %s -> %s\n", info.realsize, lfile, rfile), Aresq::OK);
-	return Aresq::DISCONNECTED;
+	if (donesize != totalsize)
+		PELOG_LOG((PLV_WARNING, "smb put size mismatch %" PRIu64 ":%" PRIu64 "\n", donesize, totalsize));
+	PELOG_LOG((PLV_VERBOSE, "PUTDONE smb %" PRIu64 " %s -> %s\n", totalsize, lfile, rfile));
+	return Aresq::OK;
 }
 
 int RemoteSmb::getType(const char *fullpath)
@@ -483,7 +399,7 @@ int RemoteSmb::delFile(const char *rbase, const char *path)
 int RemoteSmb::delFile(const std::string &fullpath)
 {
 	if (!d->smb.isconnected())
-		PELOG_ERROR_RETURN((PLV_ERROR, "DELFILE smb remote disconnected: %s\n", fullpath), Aresq::DISCONNECTED);
+		PELOG_ERROR_RETURN((PLV_ERROR, "DELFILE smb remote disconnected: %s\n", fullpath.c_str()), Aresq::DISCONNECTED);
 	int res = smb2_unlink(d->smb, fullpath.c_str());
 	if (res < 0 && res != -ENOENT)
 		PELOG_ERROR_RETURN((PLV_ERROR, "DELFILE smb failed %d: %s\n", res, fullpath.c_str()), Aresq::EPARAM);

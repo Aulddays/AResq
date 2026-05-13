@@ -116,7 +116,7 @@ int IgnoreList::isignore(const char *filename, bool isdir)
 		update();
 	updatetime = curtime;
 	std::string sfilename(filename);
-	for (auto &ipat = patterns.crbegin(); ipat != patterns.crend(); ++ipat)
+	for (auto ipat = patterns.crbegin(); ipat != patterns.crend(); ++ipat)
 	{
 		if (ipat->dir && !isdir)
 			continue;

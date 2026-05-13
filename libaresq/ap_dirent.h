@@ -76,7 +76,7 @@
 #ifndef APASS_DIRENT_H
 #define APASS_DIRENT_H
 
-#ifndef _MSC_VER
+#ifndef _WIN32
 #include <sys/types.h>
 #include <dirent.h>
 #include <libgen.h>

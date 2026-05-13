@@ -159,7 +159,7 @@ bool Root::verifyrec(Root::RootStat *stat) const
 	RootStat tstat;
 	if (!stat)
 		stat = &tstat;
-	memset(stat, 0, sizeof(stat));
+	memset(stat, 0, sizeof(*stat));
 
 	// recycle list
 	stat->nrecy = 1;
@@ -254,8 +254,9 @@ int Root::refreshStep(int state, Action &action)
 		{
 			PELOG_LOG((PLV_ERROR, "File missing, fallback to parent. %s\n", action.name.buf()));
 			AuVerify(recordFail(action.name.buf()));
-			AuAssert(restate.size() >= 2);
-			restate.pop_back();
+			AuAssert(restate.size() >= 1);
+			if (restate.size() >= 2)	// ==1 => at root, just try root again
+				restate.pop_back();
 			restate.back().stage = RefreshIter::INIT;
 			restate.back().files.clear();
 		}
@@ -431,8 +432,8 @@ int Root::refreshStep(int state, Action &action)
 				// if not found
 				bool isdel = fidx >= reiter.files.size() || pathCmpMt(reiter.files[fidx].name, fitem.name(_rname)) != 0 ||
 					reiter.files[fidx].isdir() != fitem.isdir();
-				bool ignore = !isdel && reiter.files[fidx].isignore() != fitem.isignore();
-				if (isdel || ignore)
+				bool ignorechange = !isdel && reiter.files[fidx].isignore() != fitem.isignore();
+				if (isdel || ignorechange)
 				{
 					if (isdel && !fitem.isignore())
 						PELOG_LOG((PLV_DEBUG, "DEL item detected %s: %s\n", reiter.path.buf(), fitem.name(_rname)));
@@ -478,7 +479,7 @@ int Root::refreshStep(int state, Action &action)
 					_records[fid].sizeChanged(reiter.files[reiter.prog].size) ||
 					abs((int64_t)_records[fid].time() - (int64_t)reiter.files[reiter.prog].time) > 10))
 				{
-					PELOG_LOG((PLV_DEBUG, "MOD item detected %s: %s\n", reiter.path.buf(), reiter.files[reiter.prog].name));
+					PELOG_LOG((PLV_DEBUG, "MOD item detected %s: %s\n", reiter.path.buf(), reiter.files[reiter.prog].name.buf()));
 					action.type = Action::MODFILE;
 					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), reiter.files[reiter.prog].name, action.name);
 					action.keephist = keephist;
@@ -488,7 +489,7 @@ int Root::refreshStep(int state, Action &action)
 				else if (!found)
 				{
 					PELOG_LOG((PLV_DEBUG, "%s item detected %s: %s\n",
-						reiter.files[reiter.prog].isignore() ? "IGNORE" : "ADD", reiter.path.buf(), reiter.files[reiter.prog].name));
+						reiter.files[reiter.prog].isignore() ? "IGNORE" : "ADD", reiter.path.buf(), reiter.files[reiter.prog].name.buf()));
 					action.type = reiter.files[reiter.prog].isdir() ? Action::ADDDIR : Action::ADDFILE;
 					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), reiter.files[reiter.prog].name, action.name);
 					action.isignore = reiter.files[reiter.prog].isignore();

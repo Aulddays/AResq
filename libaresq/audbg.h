@@ -5,7 +5,7 @@
 #ifdef _WIN32
 
 #define NOMINMAX 1
-#include <Windows.h>
+#include <windows.h>
 #include <crtdbg.h>
 
 #ifndef _DEBUG

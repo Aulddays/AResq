@@ -15,6 +15,10 @@ typedef utf16_t NCHART;
 #else
 typedef char NCHART;
 #define _NCT(x)      x
+#	define ftell ftello
+#	define fseek fseeko
+static_assert(sizeof(off_t) >= 8, "Missing large file support");
+static_assert(sizeof(time_t) >= 8, "Missing 64-bit time support");
 #endif
 
 void Utf8toNchar(const char *utf8, abuf<NCHART> &ncs);
