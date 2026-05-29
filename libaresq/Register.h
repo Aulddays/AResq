@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include "sqlite3.h"
+#include "libsqlite3/sqlite3.h"
 
 static_assert(SQLITE_OK == 0, "Incompatible sqlite");
 

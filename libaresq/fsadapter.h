@@ -52,7 +52,7 @@ public:
 int CreateDir(const char *dir);
 
 uint64_t getDirTime(const char *base, const char *dir, size_t dlen);
-int getFileAttr(const char *base, const char *filename, size_t fnlen, uint64_t &ftime, uint64_t &fsize);
+int getFileAttr(const char *base, const char *filename, size_t fnlen, uint64_t &ftime, uint64_t &fsize, bool &isdir);
 
 int buildPath(const char *dir, const char *filename, abuf<NCHART> &path);
 int buildPath(const char *dir, const char *filename, size_t flen, abuf<NCHART> &path);

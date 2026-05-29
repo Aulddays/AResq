@@ -1,0 +1,1 @@
+SUBDIRS = libconfig libsmb2 libsqlite3 libaresq aresqc

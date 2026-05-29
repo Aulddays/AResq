@@ -308,7 +308,7 @@ int smb2_close(struct smb2_context *smb2, struct smb2fh *fh)
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                goto out;
+                return rc;
 	}
 
         rc = cb_data->status;
@@ -1050,6 +1050,7 @@ smb2_share_enum_sync(struct smb2_context *smb2, enum SHARE_INFO_enum level)
 
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
+                cb_data->status = SMB2_STATUS_CANCELLED;
                 return NULL;
 	}
 

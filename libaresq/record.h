@@ -84,7 +84,7 @@ public:
 	// uint24(_data + RISIZE)
 	inline uint32_t size24() const { return p2l24(_data + RISIZE); }
 	inline void size24(uint64_t size) { l2p24((uint32_t)size, _data + RISIZE); }
-	inline bool sizeChanged(uint64_t size) { return (size & 0xffffff) != size24(); }
+	inline bool sizeChanged(uint64_t size) const { return (size & 0xffffff) != size24(); }
 
 	// for dir item (sub)
 	// uint24(_data + RISUB)

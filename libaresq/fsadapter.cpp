@@ -192,9 +192,10 @@ uint64_t getDirTime(const char *base, const char *dir, size_t dlen)
 	return 0;
 }
 
-int getFileAttr(const char *base, const char *filename, size_t fnlen, uint64_t &ftime, uint64_t &fsize)
+int getFileAttr(const char *base, const char *filename, size_t fnlen, uint64_t &ftime, uint64_t &fsize, bool &isdir)
 {
 	ftime = fsize = 0;
+	isdir = false;
 	abuf<wchar_t> path;
 	buildPath(base, filename, fnlen, path);
 	WIN32_FILE_ATTRIBUTE_DATA fad;
@@ -202,6 +203,7 @@ int getFileAttr(const char *base, const char *filename, size_t fnlen, uint64_t &
 		return -1;
 	ftime = filetime2Timet(fad.ftLastWriteTime);
 	fsize = ((uint64_t)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
+	isdir = (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 	return 0;
 }
 

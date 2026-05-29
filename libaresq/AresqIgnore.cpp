@@ -41,7 +41,8 @@ int IgnoreList::load(const char *ignorefilename)
 {
 	uint64_t ftime = 0;
 	uint64_t fsize = 0;
-	if (getFileAttr("", ignorefilename, strlen(ignorefilename), ftime, fsize) != 0)
+	bool isdir_dummy = false;
+	if (getFileAttr("", ignorefilename, strlen(ignorefilename), ftime, fsize, isdir_dummy) != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot access %s\n", ignorefilename), -1);
 	filename = ignorefilename;
 	update(true);
@@ -57,7 +58,8 @@ int IgnoreList::update(bool force /*= false*/)
 
 	uint64_t ftime = 0;
 	uint64_t fsize = 0;
-	if (getFileAttr("", filename.c_str(), filename.length(), ftime, fsize) != 0)
+	bool isdir_dummy = false;
+	if (getFileAttr("", filename.c_str(), filename.length(), ftime, fsize, isdir_dummy) != 0)
 	{
 		patterns.clear();
 		PELOG_ERROR_RETURN((PLV_ERROR, "Cannot access %s\n", filename.c_str()), -1);

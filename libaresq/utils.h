@@ -2,44 +2,50 @@
 
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
 
 class Spinlock
 {
 	std::atomic_flag m_ = ATOMIC_FLAG_INIT;
-
 public:
-	void lock()
-	{
-		while (m_.test_and_set(std::memory_order_acquire))
-			;
-	}
-	bool try_lock() noexcept
-	{
-		return !m_.test_and_set(std::memory_order_acquire);
-	}
-	void unlock() noexcept
-	{
-		m_.clear(std::memory_order_release);
-	}
+	bool try_lock() noexcept { return !m_.test_and_set(std::memory_order_acquire); }
+	void lock()     noexcept { while (!try_lock()) {} }
+	void unlock()   noexcept { m_.clear(std::memory_order_release); }
 };
 
-class AtomicFlag
+// Manual-reset waitable event
+class Event
 {
-private:
-	std::atomic<bool> val{false};
+	mutable std::mutex mtx;
+	std::condition_variable cv;
+	bool signaled = false;
 public:
-	bool try_set()
+	void set()	// set signaled
 	{
-		bool exp = false;
-		val.compare_exchange_strong(exp, true);
-		return false;
+		{ std::lock_guard<std::mutex> lk(mtx); signaled = true; }
+		cv.notify_all();
 	}
-	bool get()
+	void reset()	// set unsignaled
 	{
-		return val.load();
+		std::lock_guard<std::mutex> lk(mtx);
+		signaled = false;
 	}
-	void clear()
+	bool get() const	// query signaled state
 	{
-		val = false;
+		std::lock_guard<std::mutex> lk(mtx);
+		return signaled;
+	}
+	Event &operator=(bool v) { v ? set() : reset(); return *this; }
+	operator bool() const { return get(); }
+	void wait()	// wait until signaled
+	{
+		std::unique_lock<std::mutex> lk(mtx);
+		cv.wait(lk, [this]{ return signaled; });
+	}
+	// wait until signaled or timed out. Returns true if signaled, false if timed out.
+	template<class Rep, class Period>
+	bool wait_for(const std::chrono::duration<Rep, Period> &timeout) {
+		std::unique_lock<std::mutex> lk(mtx);
+		return cv.wait_for(lk, timeout, [this]{ return signaled; });
 	}
 };

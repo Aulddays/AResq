@@ -46,12 +46,17 @@ public:
 	//int addDir(const char *dir) { uint32_t did = 0;  return addDir(dir, strlen(dir), did); }
 	//int addFile(const char *file, Remote *remote) { uint32_t fid = 0;  return addFile(file, strlen(file), fid, remote); }
 
+	int addDir(const char *dir, Remote *remote) { uint32_t did = 0; return addDir(dir, strlen(dir), false, did, remote); }
 	int addDir(const char *dir, size_t dlen, bool isignore, uint32_t &did, Remote *remote);
+	int delDir(const char *dir, Remote *remote) { return delDir(dir, strlen(dir), false, keephist, false, remote); }
 	int delDir(const char *dir, size_t dlen, bool isignore, bool keephist, bool noremote, Remote *remote);
 	int delDir(uint32_t rid, uint32_t pid, const char *dir, size_t dlen, bool isignore, bool keephist, bool noremote, Remote *remote);
+	int addFile(const char *file, Remote *remote);
 	int addFile(const char *file, size_t flen, bool isignore, bool keephist, uint32_t &fid, Remote *remote);
+	int delFile(const char *filename, Remote *remote) { return delFile(filename, strlen(filename), false, keephist, false, remote); }
 	int delFile(const char *filename, size_t flen, bool isignore, bool keephist, bool noremote, Remote *remote);
 	int delFile(uint32_t rid, uint32_t pid, const char *filename, size_t flen, bool isignore, bool keephist, bool noremote, Remote *remote);
+	int rename(const char *src, const char *dst, Remote *remote);
 	int eraseName(uint32_t rid);
 
 	// Operations from watcher

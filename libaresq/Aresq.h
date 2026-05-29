@@ -15,6 +15,18 @@
 #include "Register.h"
 #include "utils.h"
 
+struct Backup
+{
+	int id = -1;
+	std::string name;
+	std::string dir;
+	bool keephist = false;
+	Root root;
+};
+
+#include "Monitor.h"
+#include "RevisionMgr.h"
+
 class Aresq
 {
 public:
@@ -39,8 +51,18 @@ public:
 
 	int init(const std::string &datadir);
 
+	// Mode 1: full update
 	int refreshAll();
-	int stop() { PELOG_LOG((PLV_INFO, "To stop\n")); running.clear(); return 0; };
+
+	// Mode 2: continuous monitoring & incremental update
+	//
+	//   Monitor  ->  OS filesystem events -> revisionMgr.submit()
+	//          |  (revisionMgr.eventQueue)
+	//   RevisionMgr  ->  organize & 2-min quiesce
+	//          |  (revisionMgr.items)
+	//   executor     ->  revisionMgr.popReady() -> executeItem() -> Remote
+	void run();          // blocking: starts monitor + executor, returns after stop()
+	int stop();          // thread-safe
 
 	static std::string encpwd(const char *code);
 	static std::string decpwd(const char *code);
@@ -49,23 +71,23 @@ private:
 	std::string recorddir;
 	Register regi;
 
-	struct Backup
-	{
-		int id = -1;
-		std::string name;
-		std::string dir;
-		Root root;
-	};
 	std::vector<std::unique_ptr<Backup>> backups;
 
-	// worker
-	std::thread worker;
+	// remote (executor-thread only after run() starts)
 	std::unique_ptr<Remote> remote;
 
 	// ignore
 	std::unique_ptr<AresqIgnore> ignore;
 
-	// a flag to notify the worker to stop
-	AtomicFlag running;
-};
+	// continuous monitoring
+	Monitor monitor;
+	RevisionMgr revisionMgr;
+	std::thread executor;
+	void executorProc();
+	Event stopFlag;
 
+	// prevents concurrent refreshAll() calls
+	Spinlock refreshMutex;
+
+	int executeItem(TaskFile &item);
+};

@@ -1139,7 +1139,9 @@ void smb2_timeout_pdus(struct smb2_context *smb2)
                         SMB2_LIST_REMOVE(&smb2->outqueue, pdu);
                         pdu->cb(smb2, SMB2_STATUS_IO_TIMEOUT, NULL,
                                 pdu->cb_data);
-                        smb2_free_pdu(smb2, pdu);
+                        if (!pdu->caller_frees_pdu) {
+                                smb2_free_pdu(smb2, pdu);
+                        }
                 }
                 pdu = next;
         }
@@ -1151,7 +1153,9 @@ void smb2_timeout_pdus(struct smb2_context *smb2)
                         SMB2_LIST_REMOVE(&smb2->waitqueue, pdu);
                         pdu->cb(smb2, SMB2_STATUS_IO_TIMEOUT, NULL,
                                 pdu->cb_data);
-                        smb2_free_pdu(smb2, pdu);
+                        if (!pdu->caller_frees_pdu) {
+                                smb2_free_pdu(smb2, pdu);
+                        }
                 }
                 pdu = next;
         }
