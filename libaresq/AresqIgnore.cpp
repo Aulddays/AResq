@@ -13,7 +13,8 @@ public:
 	int load(const char *ignorefilename);
 	int update(bool force = false);
 	// >0: ignore, <0: keep and stop testing, 0: not ignore but continue testing if there are more lists
-	int isignore(const char *filename, bool isdir);
+	int isignore(const char *filename, bool isdir) { return isignore(std::string(filename), isdir); }
+	int isignore(const std::string &filename, bool isdir);
 private:
 	struct Pattern
 	{
@@ -105,24 +106,24 @@ int IgnoreList::update(bool force /*= false*/)
 		patterns.back().neg = neg;
 	}
 
+	PELOG_LOG((PLV_INFO, "AresqIgnore reloaded\n"));
 	return 0;
 }
 
 bool gitignore_glob_match(const std::string &text, const std::string &glob);
 
 // >0: ignore, <0: keep and stop testing, 0: not ignore but continue testing if there are more lists
-int IgnoreList::isignore(const char *filename, bool isdir)
+int IgnoreList::isignore(const std::string &filename, bool isdir)
 {
 	uint64_t curtime = time64(NULL);
-	if (curtime > updatetime + 60 || curtime < updatetime - 60)
+	if (curtime > updatetime + 7200 || curtime < updatetime - 7200)	// auto update integreated in watch, wait a long time here
 		update();
 	updatetime = curtime;
-	std::string sfilename(filename);
 	for (auto ipat = patterns.crbegin(); ipat != patterns.crend(); ++ipat)
 	{
 		if (ipat->dir && !isdir)
 			continue;
-		if (gitignore_glob_match(sfilename, ipat->pat))
+		if (gitignore_glob_match(filename, ipat->pat))
 			return ipat->neg ? 0 : 1;
 	}
 	return -1;
@@ -146,5 +147,29 @@ int AresqIgnore::loadglobal(const char *filename, bool forcecreate)
 
 bool AresqIgnore::isignore(const char *filename, bool isdir)
 {
+	if (updated)
+	{
+		grule->update(true);
+		updated = false;
+	}
 	return grule->isignore(filename, isdir) > 0;
+}
+
+// test filename and all parent dirs
+bool AresqIgnore::isignore_p(const char *filename, bool isdir)
+{
+	for (const char *psep = strchr(filename, '/'); psep; psep = strchr(psep + 1, '/'))
+	{
+		if (isignore(std::string(filename, psep).c_str(), true))
+			return true;
+	}
+	return isignore(filename, isdir);
+}
+
+void AresqIgnore::setupdated()
+{
+	if (updated)
+		return;
+	updated = true;
+	PELOG_LOG((PLV_INFO, "AresqIgnore marked updated\n"));
 }

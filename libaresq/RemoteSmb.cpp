@@ -11,6 +11,7 @@
 #include <vector>
 #include <utility>
 #include <memory>
+#include <functional>
 #include <chrono>
 #include <process.h>
 
@@ -21,6 +22,7 @@
 #include "libsmb2/include/libsmb2.h"
 #ifdef _MSC_VER
 #	define snprintf _snprintf
+#	define getpid _getpid
 #endif
 
 class SmbHandle
@@ -182,25 +184,29 @@ std::unique_ptr<Remote> RemoteSmb::fromConfig(const config_setting_t *config)
 
 int RemoteSmb::init(const char *server, const char *share, const char *user, const char *password, const char *path)
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	return d->smb.init(server, share, user, password, path);
 }
 
 int RemoteSmb::connect()
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	return d->smb.connect();
 }
 
 void RemoteSmb::disconnect()
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	d->smb.disconnect();
 }
 
 bool RemoteSmb::isConnected() const
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	return d->smb.isconnected();
 }
 
-int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
+int RemoteSmb::smbPutFileNolock(const char *lfile, const char *rfile)
 {
 	uint64_t ftime = 0;
 	uint64_t totalsize = 0;
@@ -219,7 +225,7 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 	{
 		// create file failed. try some house keeping
 		const char *dirsep = strrchr(rfile, '/');
-		if (!dirsep || addDir(std::string(rfile, dirsep)) < 0 || !(rfp.reset(smb2_open(d->smb, rfile, O_WRONLY | O_CREAT)), rfp))
+		if (!dirsep || addDirNolock(std::string(rfile, dirsep)) < 0 || !(rfp.reset(smb2_open(d->smb, rfile, O_WRONLY | O_CREAT)), rfp))
 			PELOG_ERROR_RETURN((PLV_ERROR, "Cannot write smb remote file %s : %s \n", lfile, rfile), Aresq::EPARAM);
 	}
 
@@ -249,7 +255,14 @@ int RemoteSmb::smbPutFile(const char *lfile, const char *rfile)
 	return Aresq::OK;
 }
 
-int RemoteSmb::getType(const char *fullpath)
+int RemoteSmb::getType(const char *rbase, const char *path)
+{
+	std::lock_guard<std::mutex> lock(mutex);
+	std::string tpath = buildSmbPath(d->smb.path.c_str(), rbase, path);
+	return getTypeNolock(tpath.c_str());
+}
+
+int RemoteSmb::getTypeNolock(const char *fullpath)
 {
 	smb2_stat_64 stat;
 	int res = smb2_stat(d->smb, fullpath, &stat);
@@ -271,11 +284,12 @@ int RemoteSmb::getType(const char *fullpath)
 
 int RemoteSmb::addDir(const char *rbase, const char *path)
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	std::string tpath = buildSmbPath(d->smb.path.c_str(), rbase, path);
-	return addDir(tpath.c_str());
+	return addDirNolock(tpath.c_str());
 }
 
-int RemoteSmb::addDir(const std::string &fullpath)
+int RemoteSmb::addDirNolock(const std::string &fullpath)
 {
 	if (!d->smb.isconnected())
 		PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb remote disconnected: %s/%s\n", fullpath.c_str()), Aresq::DISCONNECTED);
@@ -283,7 +297,7 @@ int RemoteSmb::addDir(const std::string &fullpath)
 	int res = smb2_mkdir(d->smb, fullpath.c_str());
 	if (res == -EEXIST)
 	{
-		res = getType(fullpath.c_str());
+		res = getTypeNolock(fullpath.c_str());
 		if (res < 0)
 			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb failed %d: %s\n", res, fullpath.c_str()), Aresq::EPARAM);
 		if (res == FT_DIR)
@@ -299,7 +313,7 @@ int RemoteSmb::addDir(const std::string &fullpath)
 		if (sep == fullpath.npos)
 			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb create parent failed: %s\n", fullpath.c_str()), Aresq::EPARAM);
 		size_t bsep = d->smb.path.empty() ? 0 : d->smb.path.length() + 1;
-		if ((res = addDir(fullpath.substr(0, sep))) != Aresq::OK)
+		if ((res = addDirNolock(fullpath.substr(0, sep))) != Aresq::OK)
 			PELOG_ERROR_RETURN((PLV_ERROR, "ADDDIR smb create parent failed: %s\n", fullpath.c_str()), Aresq::EPARAM);
 		res = smb2_mkdir(d->smb, fullpath.c_str());
 	}
@@ -311,12 +325,13 @@ int RemoteSmb::addDir(const std::string &fullpath)
 
 int RemoteSmb::addFile(const char *lbase, const char *rbase, const char *path)
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	std::string lpath = std::string(lbase) + '/' + path;
 	std::string rpath = buildSmbPath(d->smb.path.c_str(), rbase, path);
-	return addFile(lpath, rpath);
+	return addFileNolock(lpath, rpath);
 }
 
-int RemoteSmb::addFile(const std::string &lfullpath, const std::string &rfullpath)
+int RemoteSmb::addFileNolock(const std::string &lfullpath, const std::string &rfullpath)
 {
 	if (!d->smb.isconnected())
 		PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb remote disconnected: %s\n", lfullpath.c_str()), Aresq::DISCONNECTED);
@@ -327,19 +342,16 @@ int RemoteSmb::addFile(const std::string &lfullpath, const std::string &rfullpat
 	{
 		uint64_t timestamp =
 			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-#ifdef _MSC_VER
-#	pragma warning(suppress : 4996)
-#endif
 		int pid = getpid();
 		snprintf(tmpbuf, 32, "%" PRIu64 ".%d", timestamp, pid);
 	}
 	std::string tmpfn = buildSmbPath(d->smb.path.c_str(), AR_TMPDIR, tmpbuf);
-	res = smbPutFile(lfullpath.c_str(), tmpfn.c_str());
+	res = smbPutFileNolock(lfullpath.c_str(), tmpfn.c_str());
 	if (res != Aresq::OK)
 		PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb failed 1:%d %s\n", res, lfullpath.c_str()), res);
 
 	// move tmp file into dst file
-	res = moveFile(tmpfn.c_str(), rfullpath.c_str(), true);
+	res = moveFileNolock(tmpfn, rfullpath, true);
 	if (res != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "ADDFILE smb failed 2:%d %s\n", res, lfullpath.c_str()), Aresq::EPARAM);
 	PELOG_ERROR_RETURN((PLV_VERBOSE, "ADDFILE smb done 2 %s\n", rfullpath.c_str()), Aresq::OK);
@@ -347,13 +359,14 @@ int RemoteSmb::addFile(const std::string &lfullpath, const std::string &rfullpat
 
 int RemoteSmb::delDir(const char *rbase, const char *path)
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	if (!path || !*path)
 		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR invalid dir name\n"), Aresq::EPARAM);
 	std::string tpath = buildSmbPath(d->smb.path.c_str(), rbase, path);
-	return delDir(tpath);
+	return delDirNolock(tpath);
 }
 
-int RemoteSmb::delDir(const std::string &fullpath)
+int RemoteSmb::delDirNolock(const std::string &fullpath)
 {
 	if (!d->smb.isconnected())
 		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR remote disconnected: %s\n", fullpath.c_str()), Aresq::DISCONNECTED);
@@ -383,7 +396,7 @@ int RemoteSmb::delDir(const std::string &fullpath)
 		}
 		for (const std::pair<std::string, bool> &item : dcont)
 		{
-			res = item.second ? delDir(fullpath + item.first) : delFile(fullpath + item.first);
+			res = item.second ? delDirNolock(fullpath + item.first) : delFileNolock(fullpath + item.first);
 			if (res != Aresq::OK)
 				return res;
 		}
@@ -398,7 +411,7 @@ int RemoteSmb::delDir(const std::string &fullpath)
 		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR smb failed %d: %s\n", res, fullpath.c_str()), Aresq::EPARAM);
 
 	// verify
-	res = isDir(fullpath.c_str());
+	res = isDirNolock(fullpath.c_str());
 	if (res != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "DELDIR smb failed %d %s\n", res, fullpath.c_str()), Aresq::EPARAM);
 
@@ -407,11 +420,12 @@ int RemoteSmb::delDir(const std::string &fullpath)
 
 int RemoteSmb::delFile(const char *rbase, const char *path)
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	std::string tpath = buildSmbPath(d->smb.path.c_str(), rbase, path);
-	return delFile(tpath);
+	return delFileNolock(tpath);
 }
 
-int RemoteSmb::delFile(const std::string &fullpath)
+int RemoteSmb::delFileNolock(const std::string &fullpath)
 {
 	if (!d->smb.isconnected())
 		PELOG_ERROR_RETURN((PLV_ERROR, "DELFILE smb remote disconnected: %s\n", fullpath.c_str()), Aresq::DISCONNECTED);
@@ -423,6 +437,7 @@ int RemoteSmb::delFile(const std::string &fullpath)
 
 int RemoteSmb::putHist(const char *rbase, const char *path)
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	std::string rpath = buildSmbPath(d->smb.path.c_str(), rbase, path);
 	std::string histpath = buildSmbPath(d->smb.path.c_str(), AR_HISTDIR, rbase) + '/' + path;
 	uint64_t timestamp =
@@ -430,7 +445,7 @@ int RemoteSmb::putHist(const char *rbase, const char *path)
 	char tmpbuf[32];
 	snprintf(tmpbuf, 32, ".%" PRIu64, timestamp);
 	histpath += tmpbuf;
-	int res = moveFile(rpath.c_str(), histpath.c_str(), true);
+	int res = moveFileNolock(rpath, histpath, true);
 	if (res == Aresq::NOTFOUND)
 		PELOG_ERROR_RETURN((PLV_WARNING, "HIST smb src not exist %s\n", rpath.c_str()), Aresq::OK);
 	else if (res != Aresq::OK)
@@ -438,7 +453,7 @@ int RemoteSmb::putHist(const char *rbase, const char *path)
 	PELOG_ERROR_RETURN((PLV_INFO, "HIST smb done %s\n", histpath.c_str()), Aresq::OK);
 }
 
-int RemoteSmb::moveFile(const std::string &fullsrcpath, const std::string &fulldstpath, bool force)
+int RemoteSmb::moveFileNolock(const std::string &fullsrcpath, const std::string &fulldstpath, bool force)
 {
 	int res = Aresq::OK;
 	// move src file into dst file
@@ -447,23 +462,23 @@ int RemoteSmb::moveFile(const std::string &fullsrcpath, const std::string &fulld
 		PELOG_ERROR_RETURN((PLV_VERBOSE, "MOVEFILE smb done 1\n"), Aresq::OK);
 
 	// move failed, try some house keeping
-	if (getType(fullsrcpath.c_str()) == FT_NONE)
+	if (getTypeNolock(fullsrcpath.c_str()) == FT_NONE)
 		PELOG_ERROR_RETURN((PLV_ERROR, "MOVEFILE src not exist %s\n", fullsrcpath.c_str()), Aresq::NOTFOUND);
 	if (force)
 	{
 		// delete dst item
-		int type = getType(fulldstpath.c_str());
+		int type = getTypeNolock(fulldstpath.c_str());
 		if (type == FT_DIR)
-			delDir(fulldstpath.c_str());
+			delDirNolock(fulldstpath.c_str());
 		else if (type == FT_FILE || type == FT_LINK)
-			delFile(fulldstpath.c_str());
+			delFileNolock(fulldstpath.c_str());
 	}
 	// create parent dir
 	const char *pathsep = strrchr(fulldstpath.c_str(), '/');
 	if (pathsep)
 	{
 		std::string parentpath(fulldstpath.c_str(), pathsep);
-		res = addDir(parentpath);
+		res = addDirNolock(parentpath);
 		if (res != Aresq::OK)
 			PELOG_ERROR_RETURN((PLV_ERROR, "MOVEFILE smb parent failed %d %s\n", res, fulldstpath.c_str()), res);
 	}
@@ -477,7 +492,8 @@ int RemoteSmb::moveFile(const std::string &fullsrcpath, const std::string &fulld
 
 int RemoteSmb::moveFile(const char *rbase, const char *srcpath, const char *dstpath, bool force)
 {
+	std::lock_guard<std::mutex> lock(mutex);
 	std::string srcfull = buildSmbPath(d->smb.path.c_str(), rbase, srcpath);
 	std::string dstfull = buildSmbPath(d->smb.path.c_str(), rbase, dstpath);
-	return moveFile(srcfull.c_str(), dstfull.c_str(), force);
+	return moveFileNolock(srcfull, dstfull, force);
 }

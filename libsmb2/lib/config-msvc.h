@@ -16,4 +16,9 @@
 
 #define _U_
 
+#pragma warning(disable: 4018)
+#pragma warning(disable: 4101)
+#pragma warning(disable: 4244)
+#pragma warning(disable: 4267)
+
 #endif

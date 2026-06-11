@@ -13,6 +13,10 @@
 
 #include "libaresq/Aresq.h"
 
+#ifdef _MSC_VER
+#	define chdir _chdir
+#endif
+
 int doencdec(bool enc);
 
 Aresq aresq;
@@ -55,9 +59,6 @@ int main(int argc, char* argv[])
 	if (argc == 2 && (strcmp(argv[1], "-e") == 0 || strcmp(argv[1], "-d") == 0))
 		return doencdec(argv[1][1] == 'e');
 
-	//*** DEBUG
-	chdir("D:\\aresq");
-
 	std::string datadir = ".";
 	if (argc > 1)
 		datadir = argv[1];
@@ -74,7 +75,8 @@ int main(int argc, char* argv[])
 	signal(SIGUSR1, sighdl);
 #endif
 
-	return aresq.refreshAll();
+	//return aresq.refreshAll();
+	return aresq.run();
 }
 
 int doencdec(bool enc)

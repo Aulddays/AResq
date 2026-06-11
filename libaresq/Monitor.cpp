@@ -107,7 +107,7 @@ void Monitor::watchproc()
 
 void WINAPI Monitor::onEvent(DWORD err, DWORD /*dwlen*/, LPOVERLAPPED lpOverlapped)
 {
-	if (err != 0)
+	if (err != 0 && err != ERROR_OPERATION_ABORTED)
 		PELOG_LOG((PLV_WARNING, "Monitor::onEvent err %lu\n", err));
 	WatchJob &job = *(WatchJob *)lpOverlapped->hEvent;
 	Monitor *pthis = job.parent;

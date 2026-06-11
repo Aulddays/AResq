@@ -5,10 +5,11 @@
 #include "fsadapter.h"
 #include "pe_log.h"
 
-void RevisionMgr::start(const std::vector<std::unique_ptr<Backup>> &backups_, AresqIgnore *ig)
+void RevisionMgr::start(const std::vector<std::unique_ptr<Backup>> &backups_, AresqIgnore *ig, int commitDelay_)
 {
 	backups = &backups_;
 	ignore = ig;
+	commitDelay = std::chrono::seconds(commitDelay_);
 	items.resize(backups_.size());
 	organizeThrd = std::thread([this]{ organizeproc(); });
 }
@@ -16,7 +17,7 @@ enum PathRel { PR_NONE = -1, PR_SAME = 0, PR_PARENT, PR_ANCESTOR, PR_CHILD, PR_D
 
 static int pathcmp(const char *p1, const char *p2)
 {
-	if (*p1 == 0 || *p2 == 0)
+	if ((*p1 == 0 || *p2 == 0) && *p1 != *p2)
 		return PR_NONE;
 	for (;; ++p1, ++p2)
 	{
@@ -27,8 +28,6 @@ static int pathcmp(const char *p1, const char *p2)
 	}
 }
 
-static const auto READY_AGE = std::chrono::minutes(2);
-
 // ---- helpers (called with mutex held) ---------------------------------------
 
 // Returns true if some item in the pool is ready. (caller must hold mutex)
@@ -37,7 +36,7 @@ bool RevisionMgr::hasReadyLocked() const
 	auto now = std::chrono::steady_clock::now();
 	for (const auto &job : items)
 		for (const auto &item : job)
-			if (now - item->timeSteady >= READY_AGE)
+			if (now - item->timeSteady >= commitDelay)
 				return true;
 	return false;
 }
@@ -55,7 +54,7 @@ std::chrono::steady_clock::duration RevisionMgr::timeUntilReadyLocked() const
 	if (earliest == std::chrono::steady_clock::time_point::max())
 		return std::chrono::steady_clock::duration::max();  // pool empty
 
-	auto readyAt = earliest + READY_AGE;
+	auto readyAt = earliest + commitDelay;
 	auto now = std::chrono::steady_clock::now();
 	if (readyAt <= now)
 		return std::chrono::steady_clock::duration::zero();
@@ -112,6 +111,22 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 	std::lock_guard<std::mutex> lock(mutex);
 
 	int ibackup = task->ibackup;
+	const Backup &backup = *(*backups)[ibackup];
+	if (ibackup + 1 == backups->size())	// datadir change
+	{
+		aresq->onDataChange(std::move(task));
+		return;
+	}
+	// special: ignore datadir changes if datadir is inside one of the normal backup dirs
+	{
+		std::string filepath = backup.dir + '/' + task->file1;
+		const std::string &datapath = backups->back()->absdir;	// backups.back() is datadir
+		if (filepath.length() >= datapath.length() &&
+				strncmp(filepath.c_str(), datapath.c_str(), datapath.length()) == 0 &&
+				(filepath.length() == datapath.length() || filepath[datapath.length()] == '/'))
+			PELOG_ERROR_RETURNVOID((PLV_VERBOSE, "Ignore datadir change %s\n", task->file1.c_str()));
+	}
+
 	auto &ops = items[ibackup];
 
 	// make sure REN_DST places right after REN_SRC, and REN_SRC can only be in front of REN_DST
@@ -131,14 +146,14 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 	}
 
 	// ignore filtering
-	if (task->op == TaskFile::TF_REN_DST)	// ren case
+	if (task->op == TaskFile::TF_REN_DST)	// rename case
 	{
-		bool igs = ignore && ignore->isignore(ops.back()->file1.c_str(), ops.back()->filetype == TaskFile::FT_DIR);
-		bool igd = ignore && ignore->isignore(task->file1.c_str(), task->filetype == TaskFile::FT_DIR);
+		bool igs = ignore && ignore->isignore_p(ops.back()->file1.c_str(), ops.back()->filetype == TaskFile::FT_DIR);
+		bool igd = ignore && ignore->isignore_p(task->file1.c_str(), task->filetype == TaskFile::FT_DIR);
 		if (igs && igd)
 		{
 			ops.pop_back();
-			goto NOTIFY;
+			goto NOTIFY_DUMP;
 		}
 		else if (igs)
 		{
@@ -154,7 +169,8 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 			PELOG_LOG((PLV_VERBOSE, "REN to ignore -> DEL %s\n", task->file1.c_str()));
 		}
 	}
-	else if (task->op != TaskFile::TF_REN_SRC && ignore && ignore->isignore(task->file1.c_str(), task->filetype == TaskFile::FT_DIR))
+	else if (task->op != TaskFile::TF_REN_SRC && task->op != TaskFile::TF_REFRESH &&
+		ignore && ignore->isignore_p(task->file1.c_str(), task->filetype == TaskFile::FT_DIR))	// non-ren case, just ignore
 	{
 		goto NOTIFY;
 	}
@@ -164,13 +180,13 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 	{
 		uint64_t ftime, fsize;
 		bool isdir;
-		if (getFileAttr((*backups)[ibackup]->dir.c_str(), task->file1.c_str(), task->file1.length(), ftime, fsize, isdir) == 0)
+		if (getFileAttr(backup.dir.c_str(), task->file1.c_str(), task->file1.length(), ftime, fsize, isdir) == 0)
 			task->filetype = isdir ? TaskFile::FT_DIR : TaskFile::FT_FILE;
 	}
 
-	if (task->op != TaskFile::TF_REN_SRC || !ignore || !ignore->isignore(task->file1.c_str(), false))
+	if (task->op != TaskFile::TF_REN_SRC || !ignore || !ignore->isignore_p(task->file1.c_str(), false))
 	{
-		PELOG_LOG((PLV_INFO, "FileOp %s: %s\n", task->opname(), task->file1.c_str()));
+		PELOG_LOG((PLV_INFO, "FileOp %s (%s): %s\n", task->opname(), backup.name.c_str(), task->file1.c_str()));
 	}
 
 	{
@@ -181,19 +197,25 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 		ops.push_back(std::move(task));
 
 		if (ops.back()->op == TaskFile::TF_REN_SRC)
-			goto NOTIFY;  // wait for matching REN_DST
+			goto NOTIFY_DUMP;  // wait for matching REN_DST
 
 		nidx = (int)ops.size() - 1;
 		if (ops.back()->op == TaskFile::TF_REN_DST)
+		{
+			AuAssert(nidx > 0 && ops[nidx - 1]->op == TaskFile::TF_REN_SRC);
+			if (ops[nidx]->file1 == ops[nidx - 1]->file1)
+			{
+				PELOG_LOG((PLV_VERBOSE, "MERGEOP drop REN with same src/dst %s\n", ops[nidx]->file1.c_str()));
+				ops.erase(ops.begin() + nidx - 1, ops.end());
+				goto NOTIFY_DUMP;
+			}
 			--nidx;  // now nidx must be TF_REN_SRC
+		}
 
 		for (int oidx = nidx - 1; oidx >= 0; --oidx)	// check for previous items for merge
 		{
 			TaskFile &nop = *ops[nidx];
 			TaskFile &oop = *ops[oidx];
-
-			// no merge for new
-			if (nop.op == TaskFile::TF_NEW) break;
 
 			int rel = pathcmp(nop.file1.c_str(), oop.file1.c_str());
 
@@ -210,10 +232,54 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 				goto NOTIFY;
 			}
 
+			if (nop.op == TaskFile::TF_REFRESH && oop.op == TaskFile::TF_REFRESH && rel == PR_SAME)
+			{
+				PELOG_LOG((PLV_VERBOSE, "MERGEOP REFRESH:%s keep old, force %d -> %d\n",
+					oop.file1.c_str(), oop.force, oop.force || nop.force));
+				oop.force = oop.force || nop.force;
+				ops.erase(ops.begin() + nidx);
+				break;
+			}
+
+			// detect cross-dir move, which usually manifests as DEL + NEW (and no sub-NEW for the dir case)
+			if (nop.op == TaskFile::TF_NEW && oop.op == TaskFile::TF_DEL && oidx == nidx - 1 &&
+				(nop.timeSteady - oop.timeSteady) / std::chrono::seconds(1) <= 1)	// allow 1s gap between DEL and NEW
+			{
+				// check name & type
+				const char *nname = baseName(nop.file1.c_str(), nop.file1.length());
+				const char *oname = baseName(oop.file1.c_str(), oop.file1.length());
+				int oitype = (*backups)[ibackup]->root.getRecordType(oop.file1.c_str());
+				TaskFile::FileType otype = oitype == 1 ? TaskFile::FT_DIR : (oitype == 0 ? TaskFile::FT_FILE : TaskFile::FT_UNK);
+				if (otype == nop.filetype && otype != TaskFile::FT_UNK && strcmp(nname, oname) == 0)
+				{
+					PELOG_LOG((PLV_VERBOSE, "MERGEOP cross-dir move detected: DEL + NEW -> REN %s -> %s\n", oop.file1.c_str(), nop.file1.c_str()));
+					oop.op = TaskFile::TF_REN_SRC;
+					nop.op = TaskFile::TF_REN_DST;
+					nop.recur = nop.filetype == TaskFile::FT_DIR;
+					if (ops[nidx]->file1 == ops[nidx - 1]->file1)
+					{
+						PELOG_LOG((PLV_VERBOSE, "MERGEOP drop REN with same src/dst %s\n", ops[nidx]->file1.c_str()));
+						ops.erase(ops.begin() + nidx - 1, ops.begin() + nidx + 1);
+						goto NOTIFY_DUMP;
+					}
+					--nidx;	// since REN was created, update nidx to follow the convention (see before the `for`)
+					continue;	// continue with merge (but move on to next oop after --nidx), especially the REN specific rules
+				}
+			}
+
+		
+			if (nop.op == TaskFile::TF_NEW)
+			{
+				nop.recur = nop.filetype == TaskFile::FT_DIR;
+				break;	// no merge for NEW other than cross-dir move
+			}
+
 			// skip if no match
-			if (rel == PR_NONE) continue;
+			if (rel == PR_NONE)
+				continue;
 			// stop merge if previously deleted
-			if (oop.op == TaskFile::TF_DEL && (rel == PR_SAME || rel == PR_CHILD || rel == PR_DESCENDANT)) break;
+			if (oop.op == TaskFile::TF_DEL && (rel == PR_SAME || rel == PR_CHILD || rel == PR_DESCENDANT))
+				break;
 
 			// previous new or mod merges into new mod
 			if (nop.op == TaskFile::TF_MOD && rel == PR_SAME && (oop.op == TaskFile::TF_MOD || oop.op == TaskFile::TF_NEW))
@@ -245,8 +311,11 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 				if (oop.op == TaskFile::TF_REN_DST && rel == PR_SAME)
 				{
 					PELOG_LOG((PLV_VERBOSE, "MERGEOP REN + DEL -> DEL %s\n", ops[oidx - 1]->file1.c_str()));
-					// move DEL to REN, so that NEW between DEL and REN would preserve
+					// if DEL is the newest and is right after REN, remove REN (and keep DEL's time), so that DEL and future cross-dir NEW would merge
+					// otherwise move DEL to REN (and keep REN's time & order), so that NEW between DEL and REN would preserve
 					ops[oidx - 1]->op = TaskFile::TF_DEL;
+					if (nidx == ops.size() - 1 && oidx == ops.size() - 2)
+						ops[oidx - 1]->timeSteady = ops[nidx]->timeSteady;
 					ops.erase(ops.begin() + nidx);
 					ops.erase(ops.begin() + oidx);
 					break;
@@ -256,6 +325,7 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 			// REN
 			if (nop.op == TaskFile::TF_REN_SRC)
 			{
+				AuAssert(nidx + 1 < (int)ops.size() && ops[nidx + 1]->op == TaskFile::TF_REN_DST);
 				if (oop.op == TaskFile::TF_NEW && rel == PR_SAME)
 				{
 					PELOG_LOG((PLV_VERBOSE, "MERGEOP NEW:%s + REN -> NEW:%s\n", oop.file1.c_str(), ops[nidx + 1]->file1.c_str()));
@@ -290,43 +360,74 @@ void RevisionMgr::process(std::unique_ptr<TaskFile> task)
 				}
 			}
 		}
+
+		// After the normal merge, detect DEL+NEW(file) and merge into MOD
+		// Do this separately because a MOD of `foo` is actually often a complicated process:
+		// NEW foo.tmp -> WRITE foo.tmp -> REN foo foo.tmp1 -> REN foo.tmp foo -> DEL foo.tmp1
+		// which is difficult to detect in the first round of merge
+		for (size_t i = 0; i + 1 < ops.size(); ++i)
+		{
+			TaskFile &delop = *ops[i];
+			TaskFile &newop = *ops[i + 1];
+			if (delop.op != TaskFile::TF_DEL || newop.op != TaskFile::TF_NEW)
+				continue;
+			if (newop.filetype != TaskFile::FT_FILE)
+				continue;
+			if (pathCmpMt(delop.file1.c_str(), newop.file1.c_str()) != 0)
+				continue;
+			if ((*backups)[ibackup]->root.getRecordType(newop.file1.c_str()) != 0)
+				continue;
+
+			PELOG_LOG((PLV_VERBOSE, "MERGEOP DEL + NEW -> MOD: %s\n", newop.file1.c_str()));
+			newop.op = TaskFile::TF_MOD;
+			ops.erase(ops.begin() + i);
+		}
 	}
 
-NOTIFY:
-	PELOG_LOG((PLV_DEBUG, "  Pool [job %d]:", ibackup));
+NOTIFY_DUMP:
+	PELOG_LOG((PLV_DEBUG, "Dump Pool [%d:%d] (%s):\n", ibackup, (int)ops.size(), backup.name.c_str()));
 	for (const auto &op : ops)
-		PELOG_LOG((PLV_DEBUG, "  %s: %s", op->opname(), op->file1.c_str()));
+		PELOG_LOG((PLV_DEBUG, "  %s: %s\n", op->opname(), op->file1.c_str()));
+NOTIFY:
 	cv.notify_all();
 }
 
 // ---- waitReady --------------------------------------------------------------
 
-// Block until an item has aged READY_AGE and is ready to pop.
-// Returns true when ready, false if stopFlag is set.
-bool RevisionMgr::waitReady(const Event &stopFlag)
+// Block until an item has aged commitDelay and is ready to pop.
+// Returns true when ready, false if stopFlag is set or maxWait expires.
+bool RevisionMgr::waitReady(const Event &stopFlag, std::chrono::steady_clock::duration maxWait)
 {
+	using Clock = std::chrono::steady_clock;
 	std::unique_lock<std::mutex> lk(mutex);
+	const auto deadline = maxWait == Clock::duration::max() ? Clock::time_point::max() : Clock::now() + maxWait;
 	while (!stopFlag)
 	{
 		if (hasReadyLocked())	// if already ready, just return
 			return true;
+
+		auto now = Clock::now();
+		if (now >= deadline)
+			break;
+
 		auto dt = timeUntilReadyLocked();	// Estimate the time to become ready, based on items in pool
-		if (dt == std::chrono::steady_clock::duration::max())	// pool empty
-		{
-			// Pool empty: wait unitil notified and pool not empty
-			cv.wait(lk, [&]{
-				for (const auto &j : items) if (!j.empty()) return true;
-				return bool(stopFlag);
-			});
-		}
-		else
-		{
-			// Wait for the estimated time
-			cv.wait_for(lk, dt, [&]{ return bool(stopFlag); });
-		}
+		auto wakeAt = dt == Clock::duration::max() ? Clock::time_point::max() : now + dt;
+		if (deadline < wakeAt)
+			wakeAt = deadline;
+		cv.wait_until(lk, wakeAt, [&]{
+			if (stopFlag)
+				return true;
+			if (dt == Clock::duration::max())	// if pool was empty and cv got notified
+			{
+				for (const auto &j : items)	// stop wait if new item got added to the pool
+					if (!j.empty())
+						return true;
+			}
+			return false;
+		});
 		// waited, check again in next loop
 	}
-	return false;	// stopped
+	return false;	// stopped or timed out
 }
 
 // ---- popReady / pushFront / notifyStop --------------------------------------
@@ -345,7 +446,7 @@ std::unique_ptr<TaskFile> RevisionMgr::popReady()
 			for (int i = 0; i < (int)items[j].size(); ++i)
 			{
 				const auto &item = items[j][i];
-				if (now - item->timeSteady >= READY_AGE && item->seq < bestSeq)
+				if (now - item->timeSteady >= commitDelay && item->seq < bestSeq)
 				{
 					bestSeq = item->seq;
 					bestBkQueue = j;
@@ -368,6 +469,7 @@ std::unique_ptr<TaskFile> RevisionMgr::popReady()
 			{
 				result->op    = TaskFile::TF_REN;
 				result->file2 = bkQueue[bestIdx]->file1;
+				result->recur = result->recur || bkQueue[bestIdx]->recur;
 				bkQueue.erase(bkQueue.begin() + bestIdx);
 			}
 			else
@@ -394,6 +496,10 @@ void RevisionMgr::putBack(std::unique_ptr<TaskFile> task)
 		dst->seq = task->seq + 1;
 		dst->time = task->time;
 		dst->timeSteady = task->timeSteady;
+		dst->filetype = task->filetype;
+		dst->recur = task->recur;
+		dst->force = task->force;
+		dst->failnum = task->failnum;
 		task->op = TaskFile::TF_REN_SRC;
 		task->file2.clear();
 		items[j].insert(items[j].begin(), std::move(dst));

@@ -8,6 +8,7 @@
 #include <deque>
 #include <atomic>
 #include <vector>
+#include <thread>
 
 #include "pe_log.h"
 #include "ap_dirent.h"
@@ -47,12 +48,18 @@ static struct PelogOutStream
 	size_t fmaxsize = -1;	// max file size before rotate
 	size_t fsize = -1;	// current file size
 	size_t nkeep = -1;	// number of history files to keep
+	size_t flushsize = 0;	// written since last flush
 	std::deque<std::string> kept;	// history files currently be
 	std::string filename;
 	bool linebuf = false;
+	std::thread flushthrd;
+	std::atomic<bool> stopflush{false};
 	PelogOutStream() : stream(stderr){}
 	~PelogOutStream()
 	{
+		stopflush = true;
+		if (flushthrd.joinable())
+			flushthrd.join();
 		close();
 	}
 	void close()
@@ -71,6 +78,12 @@ static struct PelogOutStream
 			fmaxsize = nkeep = -1;
 			this->filename = filename ? filename : "";
 			this->linebuf = linebuf;
+
+			if (stream != stdout && stream != stderr && !flushthrd.joinable())
+			{
+				stopflush = false;
+				flushthrd = std::thread(&PelogOutStream::flusher, this);
+			}
 		}
 		return ret;
 	}
@@ -98,7 +111,7 @@ static struct PelogOutStream
 #endif
 			}
 			else
-				setvbuf(newstr, NULL, _IOFBF, 512);
+				setvbuf(newstr, NULL, _IOFBF, 4096);
 			stream = newstr;
 			if (oldstr != stderr)
 				fclose(oldstr);
@@ -200,10 +213,32 @@ static struct PelogOutStream
 	{
 		if (fmaxsize != (size_t)-1)
 			fsize += size;
+		if (stream != stderr && stream != stdout)
+			flushsize += size;
 	}
 	void flush()
 	{
 		fflush(stream);
+	}
+
+	void flusher()
+	{
+		time_t flushtime = 0;
+		while (!stopflush)
+		{
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+			LockGuard lock;
+			if (flushsize > 0 && stream != stderr && stream != stdout)
+			{
+				time_t now = time(NULL);
+				if (now >= flushtime + 2 || now + 2 < flushtime)
+				{
+					flush();
+					flushsize = 0;
+					flushtime = now;
+				}
+			}
+		}
 	}
 
 } pelog_out_stream;
@@ -296,5 +331,6 @@ int pelog_setfile_rotate(size_t filesize_kb, size_t maxkeep, const char *fileNam
 
 void pelog_flush()
 {
+	LockGuard lock;
 	pelog_out_stream.flush();
 }

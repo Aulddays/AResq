@@ -2,6 +2,9 @@
 
 #include "fsadapter.h"
 #include <algorithm>
+#ifdef _WIN32
+#include <io.h>
+#endif
 
 #include "pe_log.h"
 
@@ -97,6 +100,74 @@ FILE *OpenFile(const char *dir, const char *filename, const wchar_t *mode)
 	abuf<utf16_t> path;
 	buildPath(dir, filename, path);
 	return _wfopen(path, mode);
+}
+
+// fflush reaches the CRT/OS; _commit asks the OS to persist file data.
+int FlushFile(FILE *fp)
+{
+	if (!fp)
+		return -1;
+	if (fflush(fp) != 0)
+		return -1;
+	return _commit(_fileno(fp));
+}
+
+bool FileExists(const char *filename)
+{
+	abuf<utf16_t> path;
+	utf8to16(filename, path);
+	normDirSep(path);
+	FILE *fp = _wfopen(path, L"rb");
+	if (!fp)
+		return false;
+	fclose(fp);
+	return true;
+}
+
+bool FileExists(const char *dir, const char *filename)
+{
+	abuf<utf16_t> path;
+	buildPath(dir, filename, path);
+	FILE *fp = _wfopen(path, L"rb");
+	if (!fp)
+		return false;
+	fclose(fp);
+	return true;
+}
+
+int RenameFile(const char *oldname, const char *newname)
+{
+	abuf<utf16_t> oldpath;
+	abuf<utf16_t> newpath;
+	utf8to16(oldname, oldpath);
+	utf8to16(newname, newpath);
+	normDirSep(oldpath);
+	normDirSep(newpath);
+	return _wrename(oldpath, newpath);
+}
+
+int RenameFile(const char *dir, const char *oldname, const char *newname)
+{
+	abuf<utf16_t> oldpath;
+	abuf<utf16_t> newpath;
+	buildPath(dir, oldname, oldpath);
+	buildPath(dir, newname, newpath);
+	return _wrename(oldpath, newpath);
+}
+
+int RemoveFile(const char *filename)
+{
+	abuf<utf16_t> path;
+	utf8to16(filename, path);
+	normDirSep(path);
+	return _wremove(path);
+}
+
+int RemoveFile(const char *dir, const char *filename)
+{
+	abuf<utf16_t> path;
+	buildPath(dir, filename, path);
+	return _wremove(path);
 }
 
 inline uint64_t filetime2Timet(FILETIME ft)
@@ -345,8 +416,8 @@ int pathRel2Abs(abufchar &path, const char *base)
 	return 0;
 }
 
-// return lenth of path
-size_t splitPath(const char *path, size_t plen)
+// return length of dirname part
+size_t pathDirLen(const char *path, size_t plen)
 {
 	if (plen == 0)
 		return 0;
@@ -357,4 +428,10 @@ size_t splitPath(const char *path, size_t plen)
 			return plen;
 	}
 	return plen;
+}
+
+const char *baseName(const char *path, size_t plen)
+{
+	size_t parentlen = pathDirLen(path, plen);
+	return parentlen == 0 ? path : path + parentlen + 1;
 }

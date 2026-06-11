@@ -69,15 +69,15 @@ class TaskFile : public Task
 {
 public:
 	~TaskFile() { }
-	enum FileOP { TF_NONE, TF_NEW, TF_DEL, TF_MOD, TF_REN, TF_REN_SRC, TF_REN_DST, TF_NUM };
-	TaskFile(int ibackup_, FileOP op, const char *file1, const char *file2 = "") :
-		op(op), file1(file1), file2(file2), ibackup(ibackup_),
+	enum FileOP { TF_NONE, TF_NEW, TF_DEL, TF_MOD, TF_REN, TF_REN_SRC, TF_REN_DST, TF_REFRESH, TF_NUM };
+	TaskFile(int ibackup_, FileOP op, const char *file1, const char *file2 = "", bool force = false) :
+		op(op), file1(file1), file2(file2), ibackup(ibackup_), force(force),
 		timeSteady(std::chrono::steady_clock::now()) { tasktype = TT_FILE; }
 	static char * OpName[TF_NUM];
 	FileOP op = TF_NONE;
 	const char *opname() const
 	{
-		static const char * names[TF_NUM] = { "NONE", "NEW", "DEL", "MOD", "REN", "REN_SRC", "REN_DST" };
+		static const char * names[TF_NUM] = { "NONE", "NEW", "DEL", "MOD", "REN", "REN_SRC", "REN_DST", "REFRESH" };
 		static_assert(sizeof(names) / sizeof(names[0]) == TF_NUM, "opnames not match");
 		return names[op];
 	}
@@ -87,6 +87,8 @@ public:
 	enum FileType { FT_UNK, FT_FILE, FT_DIR };
 	FileType filetype = FT_UNK;
 	bool recur = false;
+	bool force = false;
+	int failnum = 0;
 
 	std::chrono::steady_clock::time_point timeSteady;
 };

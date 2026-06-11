@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+#include <set>
 
 #include "resguard.h"
 #define LIBCONFIG_STATIC
@@ -15,7 +16,7 @@
 #	pragma comment(lib, "Ws2_32.lib")
 #endif
 
-Aresq::Aresq()
+Aresq::Aresq(): revisionMgr(this)
 {
 }
 
@@ -32,15 +33,20 @@ struct configext_t : public config_t	// simple resource manager for config_t
 
 int Aresq::init(const std::string &datadir)
 {
+	absdatadir = realpath(datadir.c_str());
+
 	// load conf file
 	configext_t config;
 	if (CONFIG_FALSE == config_read_file(&config, (datadir + "/aresq.conf").c_str()))
 	{
-		PELOG_ERROR_RETURN((PLV_ERROR, "Error loading config file (line %d): %s\n",
-			config_error_line(&config), config_error_text(&config)), -1);
+		PELOG_ERROR_RETURN((PLV_ERROR, "Error loading config file (%s : %d): %s\n",
+			(datadir + "/aresq.conf").c_str(), config_error_line(&config), config_error_text(&config)), -1);
 	}
 	// logs
-	pelog_setfile((datadir + "/run.log").c_str(), false);
+	int logToFile = false;
+	config_lookup_bool(&config, "general.log_to_file", &logToFile);
+	if (logToFile)
+		pelog_setfile((datadir + "/run.log").c_str(), false);
 
 	// register
 	if (regi.init((datadir + "/register").c_str()) != 0)
@@ -60,6 +66,17 @@ int Aresq::init(const std::string &datadir)
 	int keephist = true;
 	config_lookup_bool(&config, "general.history", &keephist);
 
+	// monitor configs
+	idleTimeout = 300;
+	config_lookup_int(&config, "general.idle_timeout", &idleTimeout);
+	idleTimeout = std::max(30, std::min(600, idleTimeout));
+	fullRefreshInterval = 432000;
+	config_lookup_int(&config, "general.full_refresh_interval", &fullRefreshInterval);
+	fullRefreshInterval = std::max(86400, std::min(86400 * 10, fullRefreshInterval));
+	monitorCommitDelay = 120;
+	config_lookup_int(&config, "general.monitor_commit_delay", &monitorCommitDelay);
+	monitorCommitDelay = std::max(10, std::min(idleTimeout * 2 / 3, monitorCommitDelay));
+
 	// backups
 	recorddir = datadir + "/records";
 	config_setting_t *cbks = config_lookup(&config, "backups");
@@ -77,11 +94,21 @@ int Aresq::init(const std::string &datadir)
 		backups.back()->id = (int)backups.size() - 1;
 		backups.back()->name = name;
 		backups.back()->dir = path;
+		backups.back()->absdir = realpath(path);
 		backups.back()->keephist = keephist != 0;
 		if (backups.back()->root.load(backups.back()->id, name, path,
 				(recorddir + '/' + name).c_str(), keephist != 0, ignore.get()) != 0)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Init ackup idx(%d) %s failed\n", i, name), -1);
+		backups.back()->refreshTime = regi.geti(name, "refreshTime", 0);
+		backups.back()->refreshErrTime = regi.geti(name, "refreshErrTime", 0);
+		backups.back()->compactTime = regi.geti(name, "compactTime", 0);
 	}
+
+	// `datadir`: special backup
+	backups.emplace_back(new Backup);
+	backups.back()->id = (int)backups.size() - 1;
+	backups.back()->dir = datadir;
+	backups.back()->absdir = absdatadir;
 
 	return 0;
 }
@@ -89,20 +116,63 @@ int Aresq::init(const std::string &datadir)
 // Mode 1: Full update
 int Aresq::refreshAll()
 {
-	std::unique_lock<Spinlock> lock(refreshMutex, std::try_to_lock);
-	if (!lock.owns_lock())
-		PELOG_ERROR_RETURN((PLV_ERROR, "Aresq already running\n"), -1);
+	int res = 0;
+	for (std::unique_ptr<Backup> &backup : backups)
+	{
+		if (!backup->root.loaded())
+			continue;
+		if ((res = refreshOneBackup(*backup)) != OK)
+			break;
+		if (stopFlag)
+			break;
+	}	// for (std::unique_ptr<Backup> &backup : backups)
+	return 0;
+}
 
-	int cret = remote->connect();
-	if (cret != OK)
-		PELOG_ERROR_RETURN((PLV_ERROR, "refreshAll: connect failed (%d)\n", cret), cret);
+int Aresq::refreshDyn()
+{
+	int res = 0;
+	uint32_t now = (uint32_t)time64(NULL);
+	int pick = -1;
+	for (int i = 0; i < (int)backups.size(); ++i)	// look for the oldest backup
+	{
+		if (backups[i]->root.loaded() &&
+			(backups[i]->refreshTime + fullRefreshInterval < now || backups[i]->refreshTime > now + fullRefreshInterval) &&
+			(backups[i]->refreshErrTime + 10800 < now || backups[i]->refreshErrTime > now + 10800))
+		{
+			if (pick == -1 || backups[i]->refreshTime < backups[pick]->refreshTime ||
+					(backups[i]->refreshTime == backups[pick]->refreshTime &&
+					backups[i]->refreshErrTime < backups[pick]->refreshErrTime))
+				pick = i;
+		}
+	}
+	if (pick != -1)
+		res = refreshOneBackup(*backups[pick]);
+	return res;
+}
+
+int Aresq::refreshOneBackup(Backup &backup)
+{
+	std::unique_lock<Spinlock> refreshLock(refreshMutex, std::try_to_lock);
+	if (!refreshLock.owns_lock())
+		PELOG_ERROR_RETURN((PLV_ERROR, "Aresq already running\n"), CONFLICT);
+	auto recordErr = [&]() {
+		backup.refreshErrTime = (uint32_t)time64(NULL);
+		regi.set(backup.name.c_str(), "refreshErrTime", backup.refreshErrTime);
+	};
+
+	int res = 0;
+	PELOG_LOG((PLV_INFO, "refreshOneBackup (%s): Begin\n", backup.name.c_str()));
+	res = remote->connect();
+	if (res != OK)
+		PELOG_ERROR_RETURN((PLV_ERROR, "refreshOneBackup: connect failed (%d)\n", res), DISCONNECTED);
 	ResGuard<Remote> remote_guard(remote.get(), [](Remote *r) { r->disconnect(); });
 
 	// Load refreshStep
 	std::string stepName;
 	std::vector<std::string> step;
+	std::string stepstr = regi.get(backup.name.c_str(), "refreshStep");
 	{
-		std::string stepstr = regi.get("refreshStep");
 		const char *p = stepstr.c_str();
 		const char *pos = NULL;
 		if ((pos = strchr(p, '/')) != NULL && p != pos)
@@ -115,64 +185,80 @@ int Aresq::refreshAll()
 		}
 		if (!stepName.empty())
 			PELOG_LOG((PLV_INFO, "Got saved refresh step %s\n", stepstr.c_str()));
-		if (!stepstr.empty() && regi.set("refreshStep", "") != 0)	// clear the refreshStep record
-			PELOG_ERROR_RETURN((PLV_ERROR, "clear refreshStep failed\n"), -1);
+		if (!stepstr.empty() && regi.set(backup.name.c_str(), "refreshStep", "") != 0)	// clear the refreshStep record
+		{
+			recordErr();
+			PELOG_ERROR_RETURN((PLV_ERROR, "clear refreshStep failed\n"), EINTERNAL);
+		}
 	}
 	// validate stepname
-	if (!stepName.empty() && std::none_of(backups.begin(), backups.end(),
-			[&](std::unique_ptr<Backup> &backup){ return stepName == backup->name; }))
+	if (!stepName.empty() && stepName != backup.name)
 	{
 		PELOG_LOG((PLV_ERROR, "Invalid refresh step name %s\n", stepName.c_str()));
 		stepName.clear();
 		step.clear();
 	}
 	if (!stepName.empty())
-		PELOG_LOG((PLV_INFO, "Loaded step name %s\n", stepName.c_str()));
+		PELOG_LOG((PLV_INFO, "Loaded step name %s\n", stepstr.c_str()));
 
-	for (std::unique_ptr<Backup> &backup : backups)
+	Root &root = backup.root;
+	std::unique_lock<std::mutex> rootRefreshLock;
+	res = root.startRefresh(&step, rootRefreshLock);
+	if (res != OK)
+		PELOG_ERROR_RETURN((PLV_ERROR, "refreshOneBackup (%s): start failed %d\n", backup.name.c_str(), res), EINTERNAL);
+	Root::Action action;
+	int state = 0;
+	while (true)	// refreshSteps
 	{
-		if (!stepName.empty() && stepName != backup->name)
+		if (action.type != Root::Action::BREAK)
+			PELOG_LOG((PLV_DEBUG, "refreshStep\n"));
+		res = root.refreshStep(state, action);
+		if (res != AGAIN && res != OK)
 		{
-			PELOG_LOG((PLV_DEBUG, "Skip backup item %s\n", backup->name.c_str()));
-			continue;
+			recordErr();
+			PELOG_ERROR_RETURN((PLV_ERROR, "refreshOneBackup (%s): step failed %d\n", backup.name.c_str(), res), EINTERNAL);
 		}
-		Root &root = backup->root;
-		root.startRefresh(!stepName.empty() && stepName == backup->name ? &step : NULL);
-		stepName.clear();
-		Root::Action action;
-		int state = 0;
-		while (true)	// refreshSteps
-		{
-			if (action.type != Root::Action::BREAK)
-				PELOG_LOG((PLV_DEBUG, "refreshStep\n"));
-			int res = root.refreshStep(state, action);
-			if (res != 1 && res != 0)
-				PELOG_ERROR_RETURN((PLV_ERROR, "refreshStep failed %d\n", res), -1);
-			if (res == 0)
-				break;
-			state = root.perform(action, remote.get());
-
-			if (stopFlag)	// if stop() was called, save progress and exit
-			{
-				PELOG_LOG((PLV_INFO, "Stopping\n"));
-				root.refreshSave(&step);
-				if (!step.empty())
-				{
-					std::string stepstr(backup->name);
-					for (const std::string &stepdir : step)
-						stepstr.append("/").append(stepdir);
-					PELOG_LOG((PLV_INFO, "Recording refhresh step %s\n", stepstr.c_str()));
-					if (regi.set("refreshStep", stepstr.c_str()) != 0)
-						PELOG_LOG((PLV_ERROR, "record refreshStep failed\n"));
-				}
-				break;
-			}
-		}	// while (true)	// refreshSteps
-		AuAssert(root.verify());
-		if (stopFlag)
+		if (res == OK)
 			break;
-	}	// for (std::unique_ptr<Backup> &backup : backups)
-	return 0;
+		state = root.perform(action, remote.get());
+		if (state != OK)
+			PELOG_LOG((PLV_ERROR, "refreshOneBackup (%s): perform failed %d\n", backup.name.c_str(), res));
+		if (state == DISCONNECTED)
+			break;
+		if (stopFlag)
+		{
+			PELOG_LOG((PLV_INFO, "refreshOneBackup (%s): Stopped\n", backup.name.c_str()));
+			break;
+		}
+		if (revisionMgr.hasReady())
+		{
+			PELOG_LOG((PLV_INFO, "refreshOneBackup (%s): Paused\n", backup.name.c_str()));
+			break;
+		}
+	}	// while (true)	// refreshSteps
+
+	if (res == OK)
+	{
+		backup.refreshTime = (uint32_t)time64(NULL);
+		regi.set(backup.name.c_str(), "refreshTime", backup.refreshTime);
+		PELOG_LOG((PLV_INFO, "refreshOneBackup (%s): Finished\n", backup.name.c_str()));
+	}
+	else if (res == AGAIN)	// not finished, save progress
+	{
+		root.refreshSave(&step);
+		if (!step.empty())
+		{
+			std::string stepstr(backup.name);
+			for (const std::string &stepdir : step)
+				stepstr.append("/").append(stepdir);
+			PELOG_LOG((PLV_INFO, "refreshBackup: save step %s\n", stepstr.c_str()));
+			if (regi.set(backup.name.c_str(), "refreshStep", stepstr.c_str()) != 0)
+				PELOG_LOG((PLV_ERROR, "record refreshStep failed\n"));
+		}
+	}
+
+	AuAssert(root.verify());
+	return res;
 }
 
 // Mode 2: Continuous monitoring & incremental update
@@ -182,9 +268,9 @@ int Aresq::refreshAll()
 //   RevisionMgr  ->  organize & 2-min quiesce
 //          |  (revisionMgr.items)
 //   executor     ->  revisionMgr.popReady() -> executeItem() -> Remote
-void Aresq::run()
+int Aresq::run()
 {
-	revisionMgr.start(backups, ignore.get());
+	revisionMgr.start(backups, ignore.get(), monitorCommitDelay);
 
 	executor = std::thread([this]{ executorProc(); });
 
@@ -199,6 +285,7 @@ void Aresq::run()
 	revisionMgr.join();
 	executor.join();
 	PELOG_LOG((PLV_INFO, "Aresq::run done\n"));
+	return 0;
 }
 
 // Thread-safe: signals monitor and executor to stop; run() handles join order.
@@ -217,8 +304,13 @@ void Aresq::executorProc()
 {
 	while (!stopFlag)
 	{
-		if (!revisionMgr.waitReady(stopFlag))
-			break;
+		if (!revisionMgr.waitReady(stopFlag, std::chrono::seconds(idleTimeout)))
+		{
+			if (stopFlag)
+				break;
+			onIdle();
+			continue;
+		}
 
 		// Retry connect until success or stop
 		while (!remote->isConnected() && !stopFlag)
@@ -241,12 +333,34 @@ void Aresq::executorProc()
 			std::unique_ptr<TaskFile> item = revisionMgr.popReady();
 			if (!item)
 				break;
-			PELOG_LOG((PLV_INFO, "Execute %s: %s\n", item->opname(), item->file1.c_str()));
+			PELOG_LOG((PLV_INFO, "Execute %s (%s): %s\n", item->opname(), backups[item->ibackup]->name.c_str(), item->file1.c_str()));
 			int eret = executeItem(*item);
 			if (eret == OK)
+			{
+				// Succeeded, queue parent dir for refresh
+				if (item->op != TaskFile::TF_REFRESH)
+				{
+					submitRefreshParent(item->ibackup, item->file1.c_str(), false);
+					if (item->op == TaskFile::TF_REN)
+						submitRefreshParent(item->ibackup, item->file2.c_str(), false);
+				}
 				continue;
+			}
 			PELOG_LOG((PLV_ERROR, "Execute failed (%d) %s: %s\n", eret, item->opname(), item->file1.c_str()));
-			revisionMgr.putBack(std::move(item));
+			if (eret != DISCONNECTED)
+				++item->failnum;
+			if (item->failnum <= 3)
+			{
+				revisionMgr.putBack(std::move(item));
+				stopFlag.wait_for(std::chrono::seconds(10));
+			}
+			else
+			{
+				PELOG_LOG((PLV_ERROR, "Convert failed task into parent refresh %s: %s\n", item->opname(), item->file1.c_str()));
+				submitRefreshParent(item->ibackup, item->file1.c_str(), true);
+				if (item->op == TaskFile::TF_REN)
+					submitRefreshParent(item->ibackup, item->file2.c_str(), true);
+			}
 			break;
 		}
 
@@ -254,6 +368,17 @@ void Aresq::executorProc()
 	}
 	PELOG_LOG((PLV_INFO, "Aresq::executorProc done\n"));
 }
+
+int Aresq::submitRefreshParent(int ibackup, const char *path, bool force)
+{
+	// submit refresh for parent dir
+	if (!path || !*path || path[0] == '/' && path[1] == 0)
+		return 0;
+	size_t parentlen = pathDirLen(path, strlen(path));
+	std::string dir(path, parentlen);
+	return revisionMgr.submit(std::make_unique<TaskFile>(ibackup, TaskFile::TF_REFRESH, dir.c_str(), "", force));
+}
+
 
 // Dispatch a single ready task to the appropriate Root operation via Remote.
 int Aresq::executeItem(TaskFile &item)
@@ -263,23 +388,96 @@ int Aresq::executeItem(TaskFile &item)
 	const char *file1 = item.file1.c_str();
 	const char *file2 = item.file2.c_str();
 
+	int res = OK;
+	Root::Action action;
+	action.keephist = bk.keephist;
+	action.name.scopyFrom(file1);
 	switch (item.op)
 	{
 	case TaskFile::TF_NEW:
-		if (item.filetype == TaskFile::FT_DIR)
-			return root.addDir(file1, remote.get());
-		return root.addFile(file1, remote.get());
+		action.type = item.filetype == TaskFile::FT_DIR ? Root::Action::ADDDIR : Root::Action::ADDFILE;
+		res = root.perform(action, remote.get());
+		break;
 	case TaskFile::TF_MOD:
-		return root.addFile(file1, remote.get());
+		action.type = Root::Action::MODFILE;
+		res = root.perform(action, remote.get());
+		break;
 	case TaskFile::TF_DEL:
-		if (item.filetype == TaskFile::FT_DIR)
-			return root.delDir(file1, remote.get());
-		return root.delFile(file1, remote.get());
+		action.type = item.filetype == TaskFile::FT_DIR ? Root::Action::DELDIR : Root::Action::DELFILE;
+		res = root.perform(action, remote.get());
+		if (res == NOTFOUND)
+			res = OK;	// treat not found as success for delete
+		break;
 	case TaskFile::TF_REN:
-		return root.rename(file1, file2, remote.get());
+		action.type = Root::Action::RENAME;
+		action.dst.scopyFrom(file2);
+		res = root.perform(action, remote.get());
+		break;
+	case TaskFile::TF_REFRESH:
+		break;	// will perform later with item.recur cases
 	default:
 		PELOG_ERROR_RETURN((PLV_ERROR, "executeItem: unexpected op %s\n", item.opname()), -1);
 	}
+	if (res != OK || (item.op != TaskFile::TF_REFRESH && !item.recur))
+		return res;	// not refresh and not recur, finish
+
+	// TF_REFRESH or item.recur, do refresh
+	const char *refreshPath = item.op == TaskFile::TF_REN ? file2 : file1;
+	if (item.op == TaskFile::TF_REFRESH && !item.force)	// if not force, do not refresh if just refreshed recently
+	{
+		uint32_t rtime = root.getRecordTime(refreshPath);
+		uint32_t now = (uint32_t)time64(NULL);
+		if (rtime >= now - 3600 && rtime <= now + 3600)
+			PELOG_ERROR_RETURN((PLV_DEBUG, "Skip refresh dir %s\n", refreshPath), OK);
+	}
+	PELOG_LOG((PLV_VERBOSE, "Refresh dir %s (%s): %s\n", item.recur ? "RECUR" : "NORECUR", bk.name.c_str(), refreshPath));
+	std::unique_lock<std::mutex> rootRefreshLock;
+	res = root.startRefreshSingle(refreshPath, remote.get(), item.recur, rootRefreshLock);
+	action.type = Root::Action::NONE;
+	int state = OK;
+	while (res == AGAIN)
+	{
+		res = root.refreshStep(state, action);
+		if (res == AGAIN)
+		{
+			state = root.perform(action, remote.get());
+			if (stopFlag)
+				res = ECANCELE;
+		}
+	}
+	AuAssert(root.verify());
+	return res;
+}
+
+int Aresq::onDataChange(std::unique_ptr<TaskFile> task)
+{
+	if (task->file1 == "aresqignore")
+		ignore->setupdated();
+	return 0;
+}
+
+int Aresq::onIdle()
+{
+	// compact records
+	for (std::unique_ptr<Backup> &backup : backups)
+	{
+		if (!backup->root.loaded())
+			continue;
+		if (backup->compactTime + 86400 < time64(NULL) || backup->compactTime > time64(NULL) + 86400)
+		{
+			int res = backup->root.compact(1024 * 512);
+			if (res == OK)
+			{
+				backup->compactTime = (uint32_t)time64(NULL);
+				regi.set(backup->name.c_str(), "compactTime", backup->compactTime);
+			}
+			else
+				PELOG_LOG((PLV_ERROR, "Compact backup %s failed: %d\n", backup->name.c_str(), res));
+		}
+	}
+
+	// root refresh
+	return refreshDyn();
 }
 
 const char *cycode = "faieugrf;owtnpi4u5hutkerfbuoery4ug3";

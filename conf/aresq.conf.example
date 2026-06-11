@@ -1,0 +1,32 @@
+general:
+{
+	# executor onIdle() frequency, in seconds (default 300)
+	idle_timeout = 300
+
+	# interval between full refreshes, in seconds (default 432000, 5 days)
+	full_refresh_interval = 432000
+
+	# time before realtime update got committed, in seconds (default 120)
+	monitor_commit_delay = 120
+
+	# write log to run.log under data dir (default false, log to stderr)
+	log_to_file = false
+}
+
+backups:
+{
+	name1 = "C:/req/path/1"
+	name2 = "D:/another/path"
+}
+
+# remote endpoint
+remote:
+{
+	type = "smb"
+	# following are type specific remote configs
+	server = "xxx"
+	share = "xxx"
+	user = "xxx"
+	password = "xxx"
+	path = "xxx"
+}

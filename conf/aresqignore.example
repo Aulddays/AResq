@@ -1,0 +1,52 @@
+# RULES https://git-scm.com/docs/gitignore
+# no '/':
+# 	The name itself anywhere
+# trailing '/':
+# 	match DIR only
+# NON-trailing '/':
+# 	in ROOT only ( a/b == /a/b )
+# 	to match a/b anywhere, use **/a/b
+# * ? [a-zA-Z]
+# 	wildcards EXCEPT a slash. [Dd]ebug -> `Debug` and `debug`
+# **
+# 	full dir parts
+# 	**/foo: foo anywhere
+# 	a/**/b: a/b a/xb/ a/x/y/b ...
+# !
+# 	whitelist
+# 	NOT work if parent was ignored. eg: /a/b !/a/b/c not work. /a/b/* !/a/b/c works
+
+# Office temp files
+~$*
+
+# dev stuff
+.svn
+.git
+.vs
+.vscode
+[Dd]ebug
+[Rr]elease
+*.sdf
+*.suo
+*.pdb
+*.ilk
+*.obj
+*.o
+*.cache
+ipch
+*.lib.rsp
+*.obj.rsp
+*.pch
+*.tlog
+*.opensdf
+.gradle
+.idea
+*.iml
+local.properties
+enc_temp_folder
+node_modules
+**/out/renderer
+**/build/*
+
+*.log
+tmp.*

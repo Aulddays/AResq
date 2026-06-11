@@ -61,6 +61,13 @@ int buildPath(const char *dir, size_t dirlen, const char *file, size_t filelen, 
 inline int buildPath(const char *dir, const char *filename, abuf<char> &path) { const char *dirs[] = { dir, filename };  return buildPath(dirs, 2, path); }
 FILE *OpenFile(const char *filename, const NCHART *mode);
 FILE *OpenFile(const char *dir, const char *filename, const NCHART *mode);
+int FlushFile(FILE *fp);
+bool FileExists(const char *filename);
+bool FileExists(const char *dir, const char *filename);
+int RenameFile(const char *oldname, const char *newname);
+int RenameFile(const char *dir, const char *oldname, const char *newname);
+int RemoveFile(const char *filename);
+int RemoveFile(const char *dir, const char *filename);
 
 int ListDir(const abufchar &dir, std::vector<FsItem> &items);
 
@@ -74,4 +81,5 @@ int pathAbs2Rel(abufchar &path, const char *base);
 const char *pathAbs2Rel(const char *path, const char *base);
 int pathRel2Abs(abufchar &path, const char *base);
 
-size_t splitPath(const char *path, size_t plen);
+size_t pathDirLen(const char *path, size_t plen);
+const char *baseName(const char *path, size_t plen);

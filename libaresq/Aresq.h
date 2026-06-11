@@ -20,7 +20,14 @@ struct Backup
 	int id = -1;
 	std::string name;
 	std::string dir;
+	std::string absdir;
 	bool keephist = false;
+
+	// dynamic properties
+	uint32_t refreshTime = 0;
+	uint32_t refreshErrTime = 0;
+	uint32_t compactTime = 0;
+
 	Root root;
 };
 
@@ -41,6 +48,7 @@ public:
 		EPARAM = -6,		// parameter error
 		EINTERNAL = -7,	// internal error
 		ECANCELE = -8,
+		AGAIN = 1,		// operation started; call the step function to continue
 		FILELOCKED = -9,		// file exists but failed to read
 		INACCESIBLE = -10,	// file or dir inaccessible
 	};
@@ -53,6 +61,7 @@ public:
 
 	// Mode 1: full update
 	int refreshAll();
+	int refreshDyn();
 
 	// Mode 2: continuous monitoring & incremental update
 	//
@@ -61,13 +70,16 @@ public:
 	//   RevisionMgr  ->  organize & 2-min quiesce
 	//          |  (revisionMgr.items)
 	//   executor     ->  revisionMgr.popReady() -> executeItem() -> Remote
-	void run();          // blocking: starts monitor + executor, returns after stop()
+	int run();          // blocking: starts monitor + executor, returns after stop()
 	int stop();          // thread-safe
+
+	int onDataChange(std::unique_ptr<TaskFile> task);
 
 	static std::string encpwd(const char *code);
 	static std::string decpwd(const char *code);
 
 private:
+	std::string absdatadir;
 	std::string recorddir;
 	Register regi;
 
@@ -83,11 +95,18 @@ private:
 	Monitor monitor;
 	RevisionMgr revisionMgr;
 	std::thread executor;
-	void executorProc();
 	Event stopFlag;
+	int idleTimeout;          // general.idle_timeout: executor onIdle() frequency, in seconds
+	int fullRefreshInterval;  // general.full_refresh_interval: interval between full refreshes, in seconds
+	int monitorCommitDelay;   // general.monitor_commit_delay: time before realtime update got committed, in seconds
+	void executorProc();
 
 	// prevents concurrent refreshAll() calls
 	Spinlock refreshMutex;
 
+	int refreshOneBackup(Backup &backup);
+
 	int executeItem(TaskFile &item);
+	int submitRefreshParent(int ibackup, const char *path, bool force);
+	int onIdle();
 };

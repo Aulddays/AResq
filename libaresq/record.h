@@ -61,6 +61,7 @@ private:
 	};
 	// name: 4; time: 4; union{next: 3, parent: 3}; union{dir(sub: 3), file(size: 3)}, flag: 1, reserved: 1
 	// if islast(), ie, last item in dir, then `next` points back to parent dir
+	// time: file: mod time, dir: last refresh time
 	uint8_t _data[RIRECORDSIZE]/* = { 0 }*/;
 
 public:
@@ -71,8 +72,10 @@ public:
 	inline const char *name(const std::vector<char> &base) const { return base.data() + name(); }
 
 	// uint32(_data + RITIME)
+	// file: mod time, dir: last refresh time
 	inline uint32_t time() const { return p2l32(_data + RITIME); }
 	inline void time(uint32_t time) { l2p32(time, _data + RITIME); }
+	inline bool timeChanged(uint32_t newtime, uint32_t allowdiff=2) { return abs((int64_t)time() - (int64_t)newtime) > allowdiff; }
 
 	// uint24(_data + RINEXT/RIPARENT)
 	inline uint32_t next() const { return p2l24(_data + RINEXT); }

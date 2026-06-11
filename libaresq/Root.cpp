@@ -4,6 +4,10 @@
 #include <algorithm>
 #include <map>
 #include <chrono>
+#include <ctime>
+#include <functional>
+#include <cstring>
+#include <stdint.h>
 #include "Aresq.h"
 #include "fsadapter.h"
 #include "utfconv.h"
@@ -29,31 +33,36 @@ static inline uint64_t getFileSize(FILE *fp)
 Root::~Root()
 {
 #if defined(_DEBUG) && !defined(DRY_RUN)
-	// verify saved data on exit
-	abuf<char> buf;
-	FILE *fp = NULL;
-	// records
-	AuVerify(fp = OpenFile(recpath.c_str(), "record", _NCT("rb")));
-	size_t fsize = (size_t)getFileSize(fp);
-	AuVerify(fsize == _records.size() * sizeof(_records[0]));
-	buf.resize(fsize > 0 ? fsize : 1);
-	AuVerify(fsize == fread(buf, 1, fsize, fp));
-	fclose(fp);
-	AuVerify(memcmp(buf, _records.data(), fsize) == 0);
-	// rname
-	AuVerify(fp = OpenFile(recpath.c_str(), "rname", _NCT("rb")));
-	fsize = (size_t)getFileSize(fp);
-	AuVerify(fsize == _rname.size() * sizeof(_rname[0]));
-	buf.resize(fsize > 0 ? fsize : 1);
-	AuVerify(fsize == fread(buf, 1, fsize, fp));
-	fclose(fp);
-	AuVerify(memcmp(buf, _rname.data(), fsize) == 0);
+	if (rootid != -1)
+	{
+		// verify saved data on exit
+		abuf<char> buf;
+		FILE *fp = NULL;
+		// records
+		AuVerify(fp = OpenFile(recpath.c_str(), "record", _NCT("rb")));
+		size_t fsize = (size_t)getFileSize(fp);
+		AuVerify(fsize == _records.size() * sizeof(_records[0]));
+		buf.resize(fsize > 0 ? fsize : 1);
+		AuVerify(fsize == fread(buf, 1, fsize, fp));
+		fclose(fp);
+		AuVerify(memcmp(buf, _records.data(), fsize) == 0);
+		// rname
+		AuVerify(fp = OpenFile(recpath.c_str(), "rname", _NCT("rb")));
+		fsize = (size_t)getFileSize(fp);
+		AuVerify(fsize == _rname.size() * sizeof(_rname[0]));
+		buf.resize(fsize > 0 ? fsize : 1);
+		AuVerify(fsize == fread(buf, 1, fsize, fp));
+		fclose(fp);
+		AuVerify(memcmp(buf, _rname.data(), fsize) == 0);
+
+	}
 #endif
 }
 
 int Root::load(int id, const char *name, const char *root, const char *rec_path, bool keephist, AresqIgnore *aresqignore)
 {
-	rootid = id;
+	std::lock_guard<std::mutex> lock(_mutex);
+	rootid = -1;
 	_name = name;
 	_localroot = root;
 	recpath = rec_path;
@@ -63,9 +72,12 @@ int Root::load(int id, const char *name, const char *root, const char *rec_path,
 	if (CreateDir(recpath.c_str()) != 0)
 		PELOG_ERROR_RETURN((PLV_ERROR, "Create RECPATH failed %s\n", recpath.c_str()), -1);
 
-	FILEGuard fp = NULL;
-
 #ifndef FRESH_DEBUG
+	// verify and recover failed compact status
+	if (recoverCompact() != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Recover compact failed %s\n", recpath.c_str()), -1);
+
+	FILEGuard fp = NULL;
 	// load record
 	if (!(fp = OpenFile(recpath.c_str(), "record", _NCT("rb"))))
 		return init();
@@ -108,15 +120,17 @@ int Root::load(int id, const char *name, const char *root, const char *rec_path,
 	// verify data
 	{
 		RootStat stat;
-		if (!verifyrec(&stat))
+		if (!verifyrec(_records, _rname, &stat))
 		{
-			PELOG_LOG((PLV_ERROR, "verify loaded failed\n"));
+			PELOG_LOG((PLV_ERROR, "%s: verify loaded failed\n", name));
 			AuAssert(false);
 			goto ERROR_CLEAR;
 		}
-		PELOG_LOG((PLV_INFO, "Loaded file %u, dir %u, recycled %u\n",
-			stat.nfile, stat.ndir, stat.nrecy));
+		PELOG_LOG((PLV_INFO, "Loaded (%s) file %u, dir %u, recycled %u\n",
+			name, stat.nfile, stat.ndir, stat.nrecy));
 	}
+
+	rootid = id;
 
 	return 0;
 
@@ -154,18 +168,20 @@ int Root::init()
 	return 0;
 }
 
-bool Root::verifyrec(Root::RootStat *stat) const
+bool Root::verifyrec(const std::vector<RecordItem> &records, const std::vector<char> &rname, Root::RootStat *stat) const
 {
 	RootStat tstat;
 	if (!stat)
 		stat = &tstat;
 	memset(stat, 0, sizeof(*stat));
+	if (records.size() < 2 || rname.empty() || rname[0] != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Invalid record header\n"), false);
 
 	// recycle list
 	stat->nrecy = 1;
-	for (uint32_t recid = _records[0].next(); recid; recid = _records[recid].next())
+	for (uint32_t recid = records[0].next(); recid; recid = records[recid].next())
 	{
-		if (_records[recid].isactive())
+		if (recid >= records.size() || records[recid].isactive())
 			PELOG_ERROR_RETURN((PLV_ERROR, "recycle list corrupted\n"), false);
 		stat->nrecy++;
 	}
@@ -178,16 +194,24 @@ bool Root::verifyrec(Root::RootStat *stat) const
 		{
 			rid = trace.top();
 			trace.pop();
-			rid = _records[rid].islast() ? 0 : _records[rid].next();
+			rid = records[rid].islast() ? 0 : records[rid].next();
 			continue;
 		}
-		const RecordItem &r = _records[rid];
+		if (rid >= records.size())
+			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid record id %u\n", rid), false);
+		const RecordItem &r = records[rid];
 		if (!r.isactive())
 			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid record state %u\n", rid), false);
-		if (r.name() >= _rname.size())
+		if (r.name() >= rname.size())
 			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid record name %u\n", rid), false);
+		if (r.name() != 0 && memchr(&rname[r.name()], 0, rname.size() - r.name()) == NULL)
+			PELOG_ERROR_RETURN((PLV_ERROR, "Unterminated record name %u\n", rid), false);
 		if (r.islast() && trace.size() > 0 && r.next() != trace.top())
 			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid loopback %u: \n", rid), false);
+		if (r.isdir() && r.sub() >= records.size())
+			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid sub record %u\n", rid), false);
+		if (!r.islast() && r.next() >= records.size())
+			PELOG_ERROR_RETURN((PLV_ERROR, "Invalid next record %u\n", rid), false);
 		(r.isdir() ? stat->ndir : stat->nfile) ++;
 
 		if (r.isdir() && r.sub())
@@ -200,10 +224,10 @@ bool Root::verifyrec(Root::RootStat *stat) const
 		else
 			rid = r.next();
 	}
-	if (stat->ndir + stat->nfile + stat->nrecy != _records.size())
+	if (stat->ndir + stat->nfile + stat->nrecy != records.size())
 	{
 		PELOG_ERROR_RETURN((PLV_ERROR, "Wild records %u:%u:%u:%u\n",
-			(unsigned int)stat->ndir, (unsigned int)stat->nfile, (unsigned int)stat->nrecy, (unsigned int)_records.size()), false);
+			(unsigned int)stat->ndir, (unsigned int)stat->nfile, (unsigned int)stat->nrecy, (unsigned int)records.size()), false);
 	}
 	return true;
 }
@@ -228,8 +252,13 @@ bool Root::verifydir(uint32_t pid) const
 	return true;
 }
 
-int Root::startRefresh(const std::vector<std::string> *initstep)
+int Root::startRefresh(const std::vector<std::string> *initstep, std::unique_lock<std::mutex> &refreshLock)
 {
+	refreshLock = std::unique_lock<std::mutex>(_refreshMutex, std::try_to_lock);
+	if (!refreshLock.owns_lock())
+		PELOG_ERROR_RETURN((PLV_ERROR, "Root refresh already running %d:%s\n", rootid, _name.c_str()), Aresq::EINTERNAL);
+
+	std::lock_guard<std::mutex> lock(_mutex);
 	restate.clear();
 	restate.resize(1);
 	restate.back().rid = 1;
@@ -238,14 +267,163 @@ int Root::startRefresh(const std::vector<std::string> *initstep)
 		reinit = *initstep;
 	else
 		reinit.clear();
-	return 0;
+	return Aresq::OK;
 }
 
-// return: 0: finished, >0: one step, <0: error
+// Preparing restate for refreshing single path, optionally recuring into sub dirs
+// return: OK: finished by simple update, AGAIN: continue with refreshStep, otherwise error
+int Root::startRefreshSingle(const char *path, Remote *remote, bool recur, std::unique_lock<std::mutex> &refreshLock)
+{
+	refreshLock = std::unique_lock<std::mutex>(_refreshMutex);
+	std::lock_guard<std::mutex> lock(_mutex);
+	int res = Aresq::OK;
+	restate.clear();
+	reinit.clear();
+	failstate.clear();
+
+	// Split the relative path. Empty path means local root.
+	std::vector<std::string> parts;
+	for (const char *p = path ? path : ""; *p;)
+	{
+		while (*p == '/')
+			++p;
+		const char *beg = p;
+		while (*p && *p != '/')
+			++p;
+		if (p != beg)
+		{
+			parts.emplace_back(beg, p);
+			if (parts.back() == "." || parts.back() == "..")
+				PELOG_ERROR_RETURN((PLV_ERROR, "startRefreshSingle: Invalid component: %s\n", parts.back().c_str()), Aresq::EPARAM);
+		}
+	}
+
+	if (parts.empty())	// root dir, just start
+	{
+		restate.resize(1);
+		restate.back().rid = 1;
+		restate.back().stage = RefreshIter::INIT;
+		restate.back().iterConfig = RefreshIter::NOUPPER | (recur ? 0 : RefreshIter::NORECUR);
+		return Aresq::AGAIN;
+	}
+
+	// Walk each component and build restate.
+	restate.resize(1);	// Add root dir into restate before start
+	restate.back().rid = 1;
+	restate.back().stage = RefreshIter::RETURN;
+	uint32_t pid = 1;
+	std::string curpath;
+	for (size_t i = 0; i < parts.size(); ++i)
+	{
+		if (!curpath.empty())
+			curpath.push_back('/');
+		curpath.append(parts[i]);
+		bool islast = i + 1 == parts.size();
+
+		// check record
+		FindResult rtype = FR_MATCH;
+		uint32_t rid = findRecord(pid, parts[i].c_str(), parts[i].size(), rtype);
+		bool rexist = rid != 0 && rtype == FR_MATCH;
+		bool rdir = rexist && _records[rid].isdir();
+		bool rignore = rexist && _records[rid].isignore();
+		// intermediate record ok, move on to next level
+		if (!islast && rexist && rdir)
+		{
+			restate.resize(restate.size() + 1);
+			restate.back().rid = rid;
+			restate.back().name.scopyFrom(_records[rid].name(_rname));
+			restate.back().stage = RefreshIter::RETURN;
+			pid = rid;
+			continue;
+		}
+
+		// record not ok, go on checking physical
+		uint64_t ptime = 0, psize = 0;
+		bool pdir = false;
+		bool pexist = getFileAttr(_localroot.c_str(), curpath.c_str(), curpath.size(), ptime, psize, pdir) == 0;
+		bool pignore = pexist && ignore->isignore(curpath.c_str(), pdir);
+		// If the physical vanished, delete the stale record and finish.
+		if (!pexist)
+		{
+			if (rexist)
+			{
+				if (rdir)
+					res = delDir(curpath.c_str(), curpath.size(), pignore, keephist && !pignore, false, remote);
+				else
+					res = delFile(curpath.c_str(), curpath.size(), pignore, keephist && !pignore, false, remote);
+				if (res != Aresq::OK && res != Aresq::NOTFOUND)
+					return res;
+			}
+			return Aresq::OK;
+		}
+		// Type or ignore-state changes are represented as delete + add.
+		if (rexist && (rdir != pdir || rignore != pignore))
+		{
+			if (rdir)
+				res = delDir(curpath.c_str(), curpath.size(), rignore, keephist && !rignore && !pignore, false, remote);
+			else
+				res = delFile(curpath.c_str(), curpath.size(), rignore, keephist && !rignore && !pignore, false, remote);
+			if (res != Aresq::OK && res != Aresq::NOTFOUND)
+				return res;
+			rexist = false;
+		}
+		// if file, update it and finish.
+		if (!pdir)
+		{
+			// Just call addFile, which internally checks file change
+			uint32_t fid = rexist ? rid : 0;
+			res = addFile(curpath.c_str(), curpath.size(), pignore, keephist && !pignore, fid, remote);
+			return res;
+		}
+		// physical is dir, create it if not exist
+		if (!rexist)
+		{
+			uint32_t did = 0;
+			res = addDir(curpath.c_str(), curpath.size(), pignore, did, remote);
+			if (res != Aresq::OK)
+				return res;
+			rexist = true;
+			rdir = true;
+			rid = did;
+		}
+		if (pignore)
+			return Aresq::OK;
+
+		// all set, update restate
+		restate.resize(restate.size() + 1);
+		restate.back().rid = rid;
+		restate.back().name.scopyFrom(_records[rid].name(_rname));
+		restate.back().stage = islast ? RefreshIter::INIT : RefreshIter::RETURN;
+		if (!islast)	// if intermediate dir, just move on to next level
+		{
+			pid = rid;
+			continue;
+		}
+
+		AuAssert(restate.size() == parts.size() + 1 && restate.back().rid != 0 &&
+			pexist && !pignore && pdir && rexist && rdir);
+		restate.back().iterConfig = RefreshIter::NOUPPER | (recur ? 0 : RefreshIter::NORECUR);
+		// final level, restate prepared, we are now ready to perform the real refresh. return AGAIN
+		return Aresq::AGAIN;
+	}
+
+	return Aresq::OK;
+}
+
+// return: OK: finished, AGAIN: one step, other: error
 int Root::refreshStep(int state, Action &action)
 {
+	std::lock_guard<std::mutex> lock(_mutex);
 	const auto tmstart = std::chrono::steady_clock::now();
 	size_t opnum = 0;
+
+	// Record dir refresh time, and lazy flush using ResGuard.
+	std::vector<uint32_t> updatedcids;
+	ResGuard<std::vector<uint32_t>, std::function<void(std::vector<uint32_t> *)>> updateguard(
+		&updatedcids, [this](std::vector<uint32_t> *cids) {
+			if (!cids->empty())
+				writeRec(*cids);
+	});
 
 	// TODO: do some cleanup if state is not OK
 	if (state != Aresq::OK)
@@ -255,7 +433,7 @@ int Root::refreshStep(int state, Action &action)
 			PELOG_LOG((PLV_ERROR, "File missing, fallback to parent. %s\n", action.name.buf()));
 			AuVerify(recordFail(action.name.buf()));
 			AuAssert(restate.size() >= 1);
-			if (restate.size() >= 2)	// ==1 => at root, just try root again
+			if (restate.size() >= 2 && !(restate.back().noupper()))	// ==1 => at root, just try root again
 				restate.pop_back();
 			restate.back().stage = RefreshIter::INIT;
 			restate.back().files.clear();
@@ -322,7 +500,7 @@ int Root::refreshStep(int state, Action &action)
 			if (tmcost.count() > 1)
 			{
 				action.type = Action::BREAK;	// take a break once in a while
-				return 1;
+				return Aresq::AGAIN;
 			}
 		}
 		++opnum;
@@ -366,7 +544,10 @@ int Root::refreshStep(int state, Action &action)
 					i->isignore(true);
 				}
 			}
-			if (reinit.size() >= restate.size() && !reinit[restate.size() - 1].empty())	// has init step, skip to RECUR
+			// perform progress restore based on `reinit`, by directly skipping to RECUR
+			// reinit.size() >= restate.size() => have deeper steps to restore
+			// !reinit[restate.size() - 1].empty() => have not restored (restate will be cleared to avoid renentrance on error)
+			if (reinit.size() >= restate.size() && !reinit[restate.size() - 1].empty())
 			{
 				// look for the step in record
 				size_t prog = rec.sub(), ifile = 0;
@@ -388,7 +569,7 @@ int Root::refreshStep(int state, Action &action)
 				{
 					reiter.stage = RefreshIter::RECUR;
 					reiter.prog = prog;
-					reinit[restate.size() - 1].clear();
+					reinit[restate.size() - 1].clear();	// clear current step, to avoid reentrance on error (DOUPPER)
 					if (restate.size() >= reinit.size())	// if have reached the deepest level
 						reinit.clear();
 					break;
@@ -454,7 +635,7 @@ int Root::refreshStep(int state, Action &action)
 					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), fitem.name(_rname), action.name);
 					action.isignore = !isdel && reiter.files[fidx].isignore();
 					action.keephist = keephist && !action.isignore && !fitem.isignore();
-					return 1;
+					return Aresq::AGAIN;
 				}
 			}
 			// no more DELFILE if reach here, move on to next stage
@@ -477,14 +658,14 @@ int Root::refreshStep(int state, Action &action)
 					AuVerify(_records[fid].isdir() == reiter.files[reiter.prog].isdir());
 				if (found && !_records[fid].isdir() && !_records[fid].isignore() && (
 					_records[fid].sizeChanged(reiter.files[reiter.prog].size) ||
-					abs((int64_t)_records[fid].time() - (int64_t)reiter.files[reiter.prog].time) > 10))
+					_records[fid].timeChanged(reiter.files[reiter.prog].time)))
 				{
 					PELOG_LOG((PLV_DEBUG, "MOD item detected %s: %s\n", reiter.path.buf(), reiter.files[reiter.prog].name.buf()));
 					action.type = Action::MODFILE;
 					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), reiter.files[reiter.prog].name, action.name);
 					action.keephist = keephist;
 					reiter.prog++;	// move forward before return
-					return 1;
+					return Aresq::AGAIN;
 				}
 				else if (!found)
 				{
@@ -494,15 +675,23 @@ int Root::refreshStep(int state, Action &action)
 					buildPath(pathAbs2Rel(reiter.path.buf(), _localroot.c_str()), reiter.files[reiter.prog].name, action.name);
 					action.isignore = reiter.files[reiter.prog].isignore();
 					reiter.prog++;	// move forward before return
-					return 1;
+					return Aresq::AGAIN;
 				}
 			}
+
+			rec.time((uint32_t)time64(NULL));	// dir refresh finished, record the time
+			updatedcids.push_back(reiter.rid);	// lazy flush
 			reiter.stage = RefreshIter::RECUR;
 			reiter.prog = 0;
 			break;
 		}
 
 		case RefreshIter::RECUR:
+			if (reiter.norecur())
+			{
+				reiter.stage = RefreshIter::RETURN;
+				break;
+			}
 			if (reiter.prog == 0)
 				reiter.prog = rec.sub();
 			while (reiter.prog != 0 && (!_records[reiter.prog].isdir() || _records[reiter.prog].isignore()))
@@ -525,7 +714,9 @@ int Root::refreshStep(int state, Action &action)
 			break;
 
 		case RefreshIter::REDOUPPER:		// go back to parent dir and run again
-			if (restate.size() <= 1)
+			if (reiter.noupper())
+				reiter.stage = RefreshIter::RETURN;
+			else if (restate.size() <= 1)
 				reiter.stage = RefreshIter::RETURN;
 			else
 			{
@@ -556,6 +747,7 @@ int Root::refreshStep(int state, Action &action)
 
 int Root::refreshSave(std::vector<std::string> *step)
 {
+	std::lock_guard<std::mutex> lock(_mutex);
 	step->clear();
 	for (size_t i = 1; i < restate.size(); ++i)
 		step->emplace_back(restate[i].name);
@@ -567,11 +759,11 @@ int Root::addDir(const char *dir, size_t dlen, bool isignore, uint32_t &did, Rem
 {
 	int res = Aresq::OK;
 	// process parents
-	size_t baselen = splitPath(dir, dlen);
-	uint32_t pid = 1;	// default to top dir if baselen == 0
-	if (baselen > 0 && (res = addDir(dir, baselen, false, pid, remote)) != Aresq::OK)	// not top level dir, create parents
+	size_t parentlen = pathDirLen(dir, dlen);
+	uint32_t pid = 1;	// default to top dir if parentlen == 0
+	if (parentlen > 0 && (res = addDir(dir, parentlen, false, pid, remote)) != Aresq::OK)	// not top level dir, create parents
 		return res;
-	const char *dirname = baselen == 0 ? dir : dir + baselen + 1;
+	const char *dirname = parentlen == 0 ? dir : dir + parentlen + 1;
 	size_t nlen = dlen - (dirname - dir);
 	// check local
 	FindResult dtype = FR_MATCH;
@@ -600,7 +792,7 @@ int Root::addDir(const char *dir, size_t dlen, bool isignore, uint32_t &did, Rem
 	RecordItem &ditem = _records[did];
 	ditem.name(allocRName(dirname, nlen));
 	ditem.isdir(true);
-	ditem.time(isignore ? 0 : (uint32_t)getDirTime(_localroot.c_str(), dir, dlen));
+	ditem.time(0);	// dir.time is last refresh time, which will be updated when refresh finishes
 	ditem.isignore(isignore);
 	// insert the new record
 	cids.push_back(preid);
@@ -623,39 +815,11 @@ int Root::addDir(const char *dir, size_t dlen, bool isignore, uint32_t &did, Rem
 	return Aresq::OK;
 }
 
-int Root::addFile(const char *file, Remote *remote)
-{
-	// check record
-	FindResult ftype = FR_MATCH;
-	uint32_t pid = -1;
-	uint32_t fid = findRecordRoot(file, strlen(file), ftype, pid);
-	if (ftype != FR_MATCH)
-		fid = 0;
-	// check physical
-	uint64_t ftime = 0;
-	uint64_t fsize = 0;
-	bool isdir = false;
-	if (getFileAttr(_localroot.c_str(), file, strlen(file), ftime, fsize, isdir) != 0 || isdir)
-		PELOG_ERROR_RETURN((PLV_ERROR, "addFile NOT FOUND %d:%s\n", rootid, file), Aresq::NOTFOUND);
-	if (ftype == FR_MATCH && fid != 0 && !_records[fid].isdir() &&
-		_records[fid].time() == (uint32_t)ftime && !_records[fid].sizeChanged(fsize))	// local already exists & no change
-		PELOG_ERROR_RETURN((PLV_TRACE, "addFile Already up to date. %d:%s\n", rootid, file), Aresq::OK);
-
-	return addFile(file, strlen(file), false, keephist, fid, remote);
-}
-
 // fid: output the target file record id
 int Root::addFile(const char *file, size_t flen, bool isignore, bool keephist, uint32_t &fid, Remote *remote)
 {
 	int res = Aresq::OK;
 	bool pendingfail = false;	// error occurred but is allowed to continue
-	// process parents
-	size_t baselen = splitPath(file, flen);
-	uint32_t pid = 1;	// default to top dir if baselen == 0
-	if (baselen > 0 && (res = addDir(file, baselen, false, pid, remote)) != Aresq::OK)	// not in top level dir, create parents
-		return res;
-	const char *filename = baselen == 0 ? file : file + baselen + 1;
-	size_t nlen = flen - (filename - file);
 	// get attr
 	uint64_t ftime = 0;
 	uint64_t fsize = 0;
@@ -665,6 +829,13 @@ int Root::addFile(const char *file, size_t flen, bool isignore, bool keephist, u
 	if (isdir_dummy)
 		PELOG_ERROR_RETURN((PLV_ERROR, "addFile failed. isdir. %s : %.*s\n", _localroot.c_str(), flen, file), Aresq::NOTFOUND);
 	PELOG_LOG((PLV_TRACE, "FILE size %llu time %llu. %s : %.*s\n", fsize, ftime, _localroot.c_str(), flen, file));
+	// process parents
+	size_t parentlen = pathDirLen(file, flen);
+	uint32_t pid = 1;	// default to top dir if parentlen == 0
+	if (parentlen > 0 && (res = addDir(file, parentlen, false, pid, remote)) != Aresq::OK)	// not in top level dir, create parents
+		return res;
+	const char *filename = parentlen == 0 ? file : file + parentlen + 1;
+	size_t nlen = flen - (filename - file);
 	// check local
 	FindResult dtype = FR_MATCH;
 	fid = findRecord(pid, filename, nlen, dtype);
@@ -675,8 +846,8 @@ int Root::addFile(const char *file, size_t flen, bool isignore, bool keephist, u
 	if (dtype == FR_MATCH && fid != 0 && _records[fid].isdir())	// local is a dir, error
 		PELOG_ERROR_RETURN((PLV_ERROR, "addFile failed. dir exists. %.*s\n", flen, file), Aresq::CONFLICT);
 	if (dtype == FR_MATCH && fid != 0 && !_records[fid].isdir() &&
-			_records[fid].time() == (uint32_t)ftime && !_records[fid].sizeChanged(fsize))	// local already exists & no change
-		return Aresq::OK;
+			!_records[fid].timeChanged((uint32_t)ftime) && !_records[fid].sizeChanged(fsize))	// local already exists & no change
+		PELOG_ERROR_RETURN((PLV_VERBOSE, "addFile Already up to date. %.*s\n", flen, file), Aresq::OK);
 	bool isnew = !(dtype == FR_MATCH && fid != 0 && !_records[fid].isdir());
 	AuVerify(fid != 0);
 	AuVerify(dtype == FR_MATCH || dtype == FR_PRE || dtype == FR_PARENT);
@@ -892,15 +1063,15 @@ int Root::rename(const char *src, const char *dst, Remote *remote)
 	// Dst record
 	uint32_t dpid = 0;
 	uint32_t did = findRecordRoot(dst, dstlen, foundtype, dpid);
-	if (did != 0)
+	if (did != 0 && foundtype == FR_MATCH)
 		PELOG_ERROR_RETURN((PLV_ERROR, "rename: dst already exists %d : %.*s\n", rootid, dstlen, dst), Aresq::CONFLICT);
 	
 	// prepare dst parent dir, if not in top level
-	size_t dbaselen = splitPath(dst, dstlen);
-	const char *dname = dbaselen == 0 ? dst : dst + dbaselen + 1;
+	size_t dparentlen = pathDirLen(dst, dstlen);
+	const char *dname = dparentlen == 0 ? dst : dst + dparentlen + 1;
 	size_t dnamelen = dstlen - (dname - dst);
-	dpid = 1;	// default to top dir if dbaselen == 0
-	if (dbaselen > 0 && (res = addDir(dst, dbaselen, false, dpid, remote)) != Aresq::OK)
+	dpid = 1;	// default to top dir if dparentlen == 0
+	if (dparentlen > 0 && (res = addDir(dst, dparentlen, false, dpid, remote)) != Aresq::OK)
 		return res;
 
 	// Remote move
@@ -932,8 +1103,7 @@ int Root::rename(const char *src, const char *dst, Remote *remote)
 	}
 	AuAssert(verifydir(spid));
 	// Update name in record
-	size_t sbaselen = splitPath(src, srclen);
-	const char *sname = sbaselen == 0 ? src : src + sbaselen + 1;
+	const char *sname = baseName(src, srclen);
 	size_t snamelen = srclen - (sname - src);
 	if (snamelen != dnamelen || memcmp(sname, dname, snamelen) != 0)
 	{
@@ -967,7 +1137,7 @@ int Root::rename(const char *src, const char *dst, Remote *remote)
 }
 
 // look for the specific name under pid, return rid if found, otherwise pre or parent id
-uint32_t Root::findRecord(uint32_t pid, const char *name, size_t namelen, FindResult &restype)
+uint32_t Root::findRecord(uint32_t pid, const char *name, size_t namelen, FindResult &restype) const
 {
 	AuVerify(_records.size() >= 2 && namelen > 0 && _records[pid].isdir());
 	uint32_t delid = 0, preid = pid;
@@ -984,18 +1154,18 @@ uint32_t Root::findRecord(uint32_t pid, const char *name, size_t namelen, FindRe
 	return preid;
 }
 
-uint32_t Root::findRecordRoot(const char *name, size_t namelen, FindResult &restype, uint32_t &pid)
+uint32_t Root::findRecordRoot(const char *name, size_t namelen, FindResult &restype, uint32_t &pid) const
 {
 	pid = 1;
 	restype = FR_MATCH;
-	size_t baselen = splitPath(name, namelen);
-	if (baselen == 0)	// in root
+	size_t parentlen = pathDirLen(name, namelen);
+	if (parentlen == 0)	// in root
 		return findRecord(pid, name, namelen, restype);
 	// look for parent id
 	{
 		uint32_t tmpid = 0;
 		FindResult tmptype = FR_MATCH;
-		pid = findRecordRoot(name, baselen, tmptype, tmpid);
+		pid = findRecordRoot(name, parentlen, tmptype, tmpid);
 		if (pid == 0 || tmptype != FR_MATCH || !_records[pid].isdir())	// parent not found
 		{
 			restype = FR_NONE;
@@ -1003,7 +1173,223 @@ uint32_t Root::findRecordRoot(const char *name, size_t namelen, FindResult &rest
 			return 0;
 		}
 	}
-	return findRecord(pid, name + baselen + 1, namelen - baselen - 1, restype);
+	return findRecord(pid, name + parentlen + 1, namelen - parentlen - 1, restype);
+}
+
+uint32_t Root::getRecordTime(const char *path) const
+{
+	std::lock_guard<std::mutex> lock(_mutex);
+	if (!path || !*path)
+		return _records.size() > 1 && _records[1].isactive() ? _records[1].time() : 0;
+
+	FindResult restype = FR_NONE;
+	uint32_t pid = 0;
+	uint32_t rid = findRecordRoot(path, strlen(path), restype, pid);
+	if (rid == 0 || restype != FR_MATCH || !_records[rid].isactive())
+		return 0;
+	return _records[rid].time();
+}
+
+int Root::getRecordType(const char *path) const	// -1: not found, 0: file, 1: dir
+{
+	std::lock_guard<std::mutex> lock(_mutex);
+	if (!path || !*path)
+		return _records.size() > 1 && _records[1].isactive() ? 1 : -1;
+	FindResult restype = FR_NONE;
+	uint32_t pid = 0;
+	uint32_t rid = findRecordRoot(path, strlen(path), restype, pid);
+	if (rid == 0 || restype != FR_MATCH || !_records[rid].isactive())
+		return -1;
+	return _records[rid].isdir() ? 1 : 0;
+}
+
+// File OP helpers
+// Write and force data to disk before the file participates in compact commit.
+static int writeAllFile(const char *dir, const char *name, const void *data, size_t size)
+{
+	FILEGuard fp = OpenFile(dir, name, _NCT("wb"));
+	if (!fp)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Open file to write failed %s/%s\n", dir, name), -1);
+	if (size > 0 && fwrite(data, 1, size, fp) != size)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Write file failed %s/%s\n", dir, name), -1);
+	if (FlushFile(fp) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Flush file failed %s/%s\n", dir, name), -1);
+	fp.release();
+	return 0;
+}
+
+static int readRecordFile(const char *dir, const char *name, std::vector<RecordItem> &records)
+{
+	FILEGuard fp = OpenFile(dir, name, _NCT("rb"));
+	if (!fp)
+		return -1;
+	size_t fsize = (size_t)getFileSize(fp);
+	if (fsize % sizeof(RecordItem) != 0)
+		return -1;
+	records.resize(fsize / sizeof(RecordItem));
+	if (!records.empty() && fread(records.data(), sizeof(RecordItem), records.size(), fp) != records.size())
+		return -1;
+	return 0;
+}
+
+static int readNameFile(const char *dir, const char *name, std::vector<char> &rname)
+{
+	FILEGuard fp = OpenFile(dir, name, _NCT("rb"));
+	if (!fp)
+		return -1;
+	size_t fsize = (size_t)getFileSize(fp);
+	rname.resize(fsize);
+	if (fsize > 0 && fread(rname.data(), 1, fsize, fp) != fsize)
+		return -1;
+	return 0;
+}
+
+static int safeRename(const char *dir, const char *oldname, const char *newname)
+{
+	if (FileExists(dir, newname) && RemoveFile(dir, newname) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Remove target failed %s/%s\n", dir, newname), -1);
+	if (RenameFile(dir, oldname, newname) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "Rename failed %s/%s -> %s\n", dir, oldname, newname), -1);
+	return 0;
+}
+
+// compact the data records by reclaim deleted content in names
+// currently recycled records are not compacted: much more complicated, invalidated rids may crash refresh process
+int Root::compact(uint32_t limit)
+{
+	std::lock_guard<std::mutex> lock(_mutex);
+	if (_records.size() < 2 || _rname.empty())
+		PELOG_ERROR_RETURN((PLV_ERROR, "compact (%s): root not loaded\n", _name.c_str()), Aresq::EINTERNAL);
+
+	// First pass: estimate reclaimable bytes without building a new buffer.
+	uint64_t usedSize = 1;
+	for (uint32_t rid = 2; rid < _records.size(); ++rid)
+	{
+		if (!_records[rid].isactive() || _records[rid].name() == 0)
+			continue;
+		usedSize += strlen(getName(rid)) + 1;
+	}
+	uint64_t freeSize = _rname.size() > usedSize ? _rname.size() - usedSize : 0;
+	if (freeSize <= limit)
+	{
+		PELOG_LOG((PLV_VERBOSE, "compact (%s): skip, free %u <= limit %u\n", _name.c_str(), (unsigned int)freeSize, (unsigned int)limit));
+		return Aresq::OK;
+	}
+
+	// Second pass: repack live names and rewrite record offsets.
+	std::vector<RecordItem> newRecords = _records;
+	std::vector<char> newRName;
+	newRName.resize(1);
+	newRName[0] = 0;
+	for (uint32_t rid = 2; rid < newRecords.size(); ++rid)
+	{
+		if (!_records[rid].isactive() || _records[rid].name() == 0)
+		{
+			newRecords[rid].name(0u);
+			continue;
+		}
+		const char *name = getName(rid);
+		size_t nlen = strlen(name);
+		uint32_t base = (uint32_t)newRName.size();
+		AuVerify(base <= UINT32_MAX && nlen < UINT32_MAX - base);
+		newRName.resize(base + nlen + 1);
+		memcpy(&newRName[base], name, nlen + 1);
+		newRecords[rid].name(base);
+	}
+	if (!verifyrec(newRecords, newRName))
+		PELOG_ERROR_RETURN((PLV_ERROR, "compact: verify compacted records failed\n"), Aresq::EINTERNAL);
+	if (newRName.size() >= _rname.size())
+	{
+		PELOG_LOG((PLV_INFO, "compact: skip, rname %u -> %u\n", (unsigned int)_rname.size(), (unsigned int)newRName.size()));
+		return Aresq::OK;
+	}
+
+#ifndef DRY_RUN
+	// New data transaction process, to ensure atomicity and recoverability:
+	//   new data (write)-> record.compact.tmp, rname.compact.tmp
+	//   (create) compact.commit, the transaction meta file
+	//   old data (rename)-> record.compact.bak and rname.compact.bak;
+	//   new data (rename) record.compact.tmp -> record, rname.compact.tmp -> rname
+	//   (remove) compact.commit, then old data
+	static const char *commit = "compact.commit";
+	static const char *recordTmp = "record.compact.tmp";
+	static const char *rnameTmp = "rname.compact.tmp";
+	static const char *recordBak = "record.compact.bak";
+	static const char *rnameBak = "rname.compact.bak";
+	if (recoverCompact() != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "compact: recover previous compact failed\n"), Aresq::EINTERNAL);
+	if (writeAllFile(recpath.c_str(), recordTmp, newRecords.data(), newRecords.size() * sizeof(newRecords[0])) != 0 ||
+		writeAllFile(recpath.c_str(), rnameTmp, newRName.data(), newRName.size()) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "compact: write tmp failed\n"), Aresq::EINTERNAL);
+	const char commitContent[] = "compact\n";
+	if (writeAllFile(recpath.c_str(), commit, commitContent, sizeof(commitContent) - 1) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "compact: write commit failed\n"), Aresq::EINTERNAL);
+	if (safeRename(recpath.c_str(), "record", recordBak) != 0 ||
+		safeRename(recpath.c_str(), "rname", rnameBak) != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "compact: backup current failed\n"), Aresq::EINTERNAL);
+	if (safeRename(recpath.c_str(), recordTmp, "record") != 0 ||
+		safeRename(recpath.c_str(), rnameTmp, "rname") != 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "compact: install compacted files failed\n"), Aresq::EINTERNAL);
+	RemoveFile(recpath.c_str(), commit);
+	if (FileExists(recpath.c_str(), recordBak))
+		RemoveFile(recpath.c_str(), recordBak);
+	if (FileExists(recpath.c_str(), rnameBak))
+		RemoveFile(recpath.c_str(), rnameBak);
+#endif
+
+	PELOG_LOG((PLV_INFO, "compact (%s): rname %u -> %u\n", _name.c_str(), (unsigned int)_rname.size(), (unsigned int)newRName.size()));
+	_records.swap(newRecords);
+	_rname.swap(newRName);
+	return Aresq::OK;
+}
+
+// detect and cleanup any failed compact transaction
+int Root::recoverCompact()
+{
+#ifndef DRY_RUN
+	// compact.commit means a previous compact may have stopped mid-transaction.
+	static const char *commit = "compact.commit";
+	static const char *recordTmp = "record.compact.tmp";
+	static const char *rnameTmp = "rname.compact.tmp";
+	static const char *recordBak = "record.compact.bak";
+	static const char *rnameBak = "rname.compact.bak";
+
+	// If no failed active transaction; just discard the stale temp files, if any
+	if (!FileExists(recpath.c_str(), commit))
+	{
+		if (FileExists(recpath.c_str(), recordTmp))
+			RemoveFile(recpath.c_str(), recordTmp);
+		if (FileExists(recpath.c_str(), rnameTmp))
+			RemoveFile(recpath.c_str(), rnameTmp);
+		if (FileExists(recpath.c_str(), recordBak))
+			RemoveFile(recpath.c_str(), recordBak);
+		if (FileExists(recpath.c_str(), rnameBak))
+			RemoveFile(recpath.c_str(), rnameBak);
+		return 0;
+	}
+
+	// Active failed tranction found, roll back the old data and clean up temp files
+	if (FileExists(recpath.c_str(), recordBak))
+	{
+		if (FileExists(recpath.c_str(), "record"))
+			RemoveFile(recpath.c_str(), "record");
+		if (RenameFile(recpath.c_str(), recordBak, "record") != 0)
+			PELOG_ERROR_RETURN((PLV_ERROR, "Compact recovery restore record failed\n"), -1);
+	}
+	if (FileExists(recpath.c_str(), rnameBak))
+	{
+		if (FileExists(recpath.c_str(), "rname"))
+			RemoveFile(recpath.c_str(), "rname");
+		if (RenameFile(recpath.c_str(), rnameBak, "rname") != 0)
+			PELOG_ERROR_RETURN((PLV_ERROR, "Compact recovery restore rname failed\n"), -1);
+	}
+	if (FileExists(recpath.c_str(), recordTmp))
+		RemoveFile(recpath.c_str(), recordTmp);
+	if (FileExists(recpath.c_str(), rnameTmp))
+		RemoveFile(recpath.c_str(), rnameTmp);
+	RemoveFile(recpath.c_str(), commit);
+#endif
+	return 0;
 }
 
 // alloc string in _rname, and write to disk
@@ -1091,6 +1477,8 @@ int Root::recycleRec(uint32_t rid, std::vector<uint32_t> &cids)
 int Root::writeRec(std::vector<uint32_t> &cids)
 {
 #ifndef DRY_RUN
+	if (cids.empty())
+		return 0;
 	std::sort(cids.begin(), cids.end());
 	FILE *fp = OpenFile(recpath.c_str(), "record", _NCT("rb+"));
 	AuVerify(fp);
@@ -1112,6 +1500,7 @@ int Root::writeRec(std::vector<uint32_t> &cids)
 
 int Root::perform(Action &action, Remote *remote)
 {
+	std::lock_guard<std::mutex> lock(_mutex);
 	uint32_t rid = 0;
 	switch (action.type)
 	{
@@ -1126,6 +1515,8 @@ int Root::perform(Action &action, Remote *remote)
 		return delDir(action.name, strlen(action.name), action.isignore, action.keephist, false, remote);
 	case Action::DELFILE:
 		return delFile(action.name, strlen(action.name), action.isignore, action.keephist, false, remote);
+	case Action::RENAME:
+		return rename(action.name, action.dst, remote);
 	default:
 		break;
 	}

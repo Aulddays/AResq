@@ -49,3 +49,34 @@ public:
 		return cv.wait_for(lk, timeout, [this]{ return signaled; });
 	}
 };
+
+inline std::string realpath(const char *path)
+{
+#ifdef _WIN32
+	// convert to wchar
+	wchar_t wbuf[MAX_PATH];
+	if (MultiByteToWideChar(CP_ACP, 0, path, -1, wbuf, MAX_PATH) == 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "realpath invalid dir: %s\n", path), path);
+	// get full path
+	wchar_t *fullbuf = _wfullpath(NULL, wbuf, MAX_PATH);
+	if (!fullbuf)
+		PELOG_ERROR_RETURN((PLV_ERROR, "realpath parse dir failed: %s\n", path), path);
+	wcscpy(wbuf, fullbuf);
+	free(fullbuf);
+	// convert to utf8
+	char buf[MAX_PATH];
+	if (WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, buf, MAX_PATH, NULL, NULL) == 0)
+		PELOG_ERROR_RETURN((PLV_ERROR, "realpath convert dir failed: %s\n", path), path);
+	char *p = buf;
+	// '\\' -> '/'
+	for (p = buf; *p; ++p)
+		if (*p == '\\')
+			*p = '/';
+	// trim trailing '/'
+	for (p--; p >= buf && *p == '/'; p--)
+		*p = 0;
+	return std::string(buf);
+#else
+	static_assert(false, "NOT IMPLEMENTED");
+#endif
+}

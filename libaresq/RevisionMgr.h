@@ -13,16 +13,23 @@
 
 struct Backup;
 class AresqIgnore;
+class Aresq;
 
 class RevisionMgr {
 public:
-	void start(const std::vector<std::unique_ptr<Backup>> &backups, AresqIgnore *ignore);
+	RevisionMgr(Aresq *aresq) : aresq(aresq) {}
+
+	void start(const std::vector<std::unique_ptr<Backup>> &backups, AresqIgnore *ignore, int commitDelay);
 
 	// monitor: enqueue a raw fs event; returns -1 if organizeThrd has stopped
 	int submit(std::unique_ptr<TaskFile> event);
 
-	// executor: block until a ready item exists or stopFlag is set; returns true if ready
-	bool waitReady(const Event &stopFlag);
+	// executor: returns true if a ready item exists
+	bool hasReady() const { std::lock_guard<std::mutex> lk(mutex); return hasReadyLocked(); }
+
+	// executor: block until a ready item exists, stopFlag is set, or maxWait expires; returns true if ready
+	bool waitReady(const Event &stopFlag,
+		std::chrono::steady_clock::duration maxWait = std::chrono::steady_clock::duration::max());
 
 	// executor: pop oldest ready item (by seq); nullptr if none ready
 	std::unique_ptr<TaskFile> popReady();
@@ -34,14 +41,17 @@ public:
 	void join();   // waits for organizeThrd to finish
 
 private:
+	Aresq *aresq;
+
 	TaskQueue eventQueue;
 	std::thread organizeThrd;
 
-	std::mutex mutex;
+	mutable std::mutex mutex;
 	std::condition_variable cv;
 
 	const std::vector<std::unique_ptr<Backup>> *backups = nullptr;
 	AresqIgnore *ignore = nullptr;
+	std::chrono::steady_clock::duration commitDelay = std::chrono::seconds(120);
 	std::vector<std::vector<std::unique_ptr<TaskFile>>> items;  // items[ibackup]
 
 	void organizeproc();

@@ -19,19 +19,21 @@ public:
 	virtual int delDir(const char *rbase, const char *path);
 	virtual int delFile(const char *rbase, const char *path);
 	virtual int putHist(const char *rbase, const char *path);
-	virtual int getType(const char *fullpath);
+	virtual int getType(const char *rbase, const char *path);
 	virtual int moveFile(const char *rbase, const char *srcpath, const char *dstpath, bool force);
 
 protected:
-	int addDir(const std::string &fullpath);
-	int addFile(const std::string &lfullpath, const std::string &rfullpath);
-	int delDir(const std::string &fullpath);
-	int delFile(const std::string &fullpath);
-	int moveFile(const std::string &fullsrcpath, const std::string &fulldstpath, bool force);
+	// caller holds mutex
+	int addDirNolock(const std::string &fullpath);
+	int addFileNolock(const std::string &lfullpath, const std::string &rfullpath);
+	int delDirNolock(const std::string &fullpath);
+	int delFileNolock(const std::string &fullpath);
+	int moveFileNolock(const std::string &fullsrcpath, const std::string &fulldstpath, bool force);
+	int getTypeNolock(const char *fullpath);
 
-	int isDir(const char *fullpath) { int type = getType(fullpath); return type == FT_DIR ? 1 : type >= 0 ? 0 : type; }
+	int isDirNolock(const char *fullpath) { int type = getTypeNolock(fullpath); return type == FT_DIR ? 1 : type >= 0 ? 0 : type; }
 
-	int smbPutFile(const char *lfile, const char *rfile);
+	int smbPutFileNolock(const char *lfile, const char *rfile);
 
 private:
 	RemoteSmbData *d;
