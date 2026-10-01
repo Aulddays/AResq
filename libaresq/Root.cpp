@@ -59,7 +59,7 @@ Root::~Root()
 #endif
 }
 
-int Root::load(int id, const char *name, const char *root, const char *rec_path, bool keephist, AresqIgnore *aresqignore)
+int Root::load(int id, const char *name, const char *root, const char *rec_path, bool keephist, AresqIgnore *aresqignore, uint64_t max_file_size)
 {
 	std::lock_guard<std::mutex> lock(_mutex);
 	rootid = -1;
@@ -67,6 +67,7 @@ int Root::load(int id, const char *name, const char *root, const char *rec_path,
 	_localroot = root;
 	recpath = rec_path;
 	this->keephist = keephist;
+	this->max_file_size = max_file_size;
 	ignore = aresqignore;
 
 	if (CreateDir(recpath.c_str()) != 0)
@@ -341,7 +342,7 @@ int Root::startRefreshSingle(const char *path, Remote *remote, bool recur, std::
 		uint64_t ptime = 0, psize = 0;
 		bool pdir = false;
 		bool pexist = getFileAttr(_localroot.c_str(), curpath.c_str(), curpath.size(), ptime, psize, pdir) == 0;
-		bool pignore = pexist && ignore->isignore(curpath.c_str(), pdir);
+		bool pignore = pexist && (ignore->isignore(curpath.c_str(), pdir) || max_file_size > 0 && psize > max_file_size);
 		// If the physical vanished, delete the stale record and finish.
 		if (!pexist)
 		{
@@ -538,7 +539,7 @@ int Root::refreshStep(int state, Action &action)
 			{
 				abufchar filerelpath;
 				buildPath(relpath, i->name, filerelpath);
-				if (ignore->isignore(filerelpath, i->isdir()))
+				if (ignore->isignore(filerelpath, i->isdir()) || max_file_size > 0 && i->size > max_file_size)
 				{
 					//PELOG_LOG((PLV_DEBUG, "File ignored: %s : %s\n", _localroot.c_str(), filerelpath.buf()));
 					i->isignore(true);
@@ -825,9 +826,10 @@ int Root::addFile(const char *file, size_t flen, bool isignore, bool keephist, u
 	uint64_t fsize = 0;
 	bool isdir_dummy = false;
 	if (!isignore && getFileAttr(_localroot.c_str(), file, flen, ftime, fsize, isdir_dummy) != 0)
-		PELOG_ERROR_RETURN((PLV_ERROR, "Get file attr failed. %s : %.*s\n", _localroot.c_str(), flen, file), Aresq::NOTFOUND);
+		PELOG_ERROR_RETURN((PLV_ERROR, "addFile Get file attr failed. %s : %.*s\n", _localroot.c_str(), flen, file), Aresq::NOTFOUND);
 	if (isdir_dummy)
 		PELOG_ERROR_RETURN((PLV_ERROR, "addFile failed. isdir. %s : %.*s\n", _localroot.c_str(), flen, file), Aresq::NOTFOUND);
+	bool isignoreSize = max_file_size > 0 && fsize > max_file_size;
 	PELOG_LOG((PLV_TRACE, "FILE size %llu time %llu. %s : %.*s\n", fsize, ftime, _localroot.c_str(), flen, file));
 	// process parents
 	size_t parentlen = pathDirLen(file, flen);
@@ -839,6 +841,16 @@ int Root::addFile(const char *file, size_t flen, bool isignore, bool keephist, u
 	// check local
 	FindResult dtype = FR_MATCH;
 	fid = findRecord(pid, filename, nlen, dtype);
+	if (isignoreSize && !isignore)
+	{
+		// isignoreSize && !isignore: should be from Monitor, where the file size was not tested
+		// fully update the ignore record requires some housekeeping, which is implemented in full/single refresh
+		// Just skip the request for now and return OK, and a parent refresh will soon
+		// be triggered, where the `isignore` housekeeping will be taken care
+		if (dtype != FR_MATCH || !_records[fid].isignore())
+			PELOG_LOG((PLV_VERBOSE, "addFile ignore by size. %.*s\n", flen, file));
+		return Aresq::OK;
+	}
 	if (dtype == FR_MATCH && isignore != _records[fid].isignore())
 		PELOG_ERROR_RETURN((PLV_ERROR, "addFile failed. ignore mismatch. %.*s\n", flen, file), Aresq::CONFLICT);
 	if (dtype == FR_MATCH && isignore)

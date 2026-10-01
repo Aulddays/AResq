@@ -18,7 +18,8 @@ public:
 	~Root();
 
 	// contents of `root` will be backed up into remote/`name`, using `recpath` as local registry
-	int load(int id, const char *name, const char *root, const char *rec_path, bool keephist, AresqIgnore *aresqignore);
+	int load(int id, const char *name, const char *root, const char *rec_path, bool keephist,
+		AresqIgnore *aresqignore, uint64_t max_file_size);
 	bool loaded () const { return rootid != -1; }
 
 	struct Action
@@ -62,6 +63,7 @@ private:
 	std::string recpath;	// the dir used as local registry
 
 	bool keephist;
+	uint64_t max_file_size = 0;
 
 	AresqIgnore *ignore;
 

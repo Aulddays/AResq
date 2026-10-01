@@ -65,6 +65,10 @@ int Aresq::init(const std::string &datadir)
 	// hist
 	int keephist = true;
 	config_lookup_bool(&config, "general.history", &keephist);
+	// file size limit
+	int64_t max_file = 200;
+	config_lookup_int64(&config, "general.max_file_mb", &max_file);
+	max_file *= 1024 * 1024;
 
 	// monitor configs
 	idleTimeout = 300;
@@ -97,7 +101,7 @@ int Aresq::init(const std::string &datadir)
 		backups.back()->absdir = realpath(path);
 		backups.back()->keephist = keephist != 0;
 		if (backups.back()->root.load(backups.back()->id, name, path,
-				(recorddir + '/' + name).c_str(), keephist != 0, ignore.get()) != 0)
+				(recorddir + '/' + name).c_str(), keephist != 0, ignore.get(), max_file) != 0)
 			PELOG_ERROR_RETURN((PLV_ERROR, "Init ackup idx(%d) %s failed\n", i, name), -1);
 		backups.back()->refreshTime = regi.geti(name, "refreshTime", 0);
 		backups.back()->refreshErrTime = regi.geti(name, "refreshErrTime", 0);
