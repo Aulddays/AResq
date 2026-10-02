@@ -86,7 +86,7 @@ public:
 		else if (res == -ECONNREFUSED || res == -ENOENT)
 			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb credential error %d\n", res), Aresq::EPARAM);
 		else if (res < 0)
-			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb error %d\n", res), Aresq::EPARAM);
+			PELOG_ERROR_RETURN((PLV_ERROR, "connect smb error %d: %s\n", res, smb2_get_error(smb)), Aresq::EPARAM);
 		connected = true;
 
 		uint32_t maxchunksize = smb2_get_max_write_size(smb);
